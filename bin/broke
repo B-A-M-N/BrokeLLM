@@ -1,0 +1,489 @@
+#!/usr/bin/env bash
+# =================================================================
+# BrokeLLM — Model router for Claude Code
+#
+# Architecture:
+#   Claude (sonnet/opus/haiku/default) → LiteLLM → free backends
+#   "broke swap" remaps which backend each Claude model uses
+# =================================================================
+
+DIR="$( cd "$( dirname "$(readlink -f "${BASH_SOURCE[0]}")" )/.." && pwd )"
+PORT=4000
+GATEWAY="http://localhost:$PORT"
+CONFIG="$DIR/config.json"
+MAPPING="$DIR/.mapping.json"
+BACKENDS="$DIR/.backends.json"
+PROVIDER_FILE="$DIR/.provider"
+FREEZE_FILE="$DIR/.freeze"
+
+# ── init mapping if missing ──────────────────────────────────────────
+ensure_mapping() {
+  [ -s "$MAPPING" ] && return  # exists and not empty
+  python3 "$DIR/bin/_mapping.py" init
+}
+
+# ── generate config.json ─────────────────────────────────────────────
+generate_config() {
+  python3 "$DIR/bin/_mapping.py" config
+}
+
+# ── load env ─────────────────────────────────────────────────────────
+load_env() {
+  [ -f "$DIR/.env" ] && { set -a; source "$DIR/.env"; set +a; }
+}
+
+# ── gateway ──────────────────────────────────────────────────────────
+start_gateway() {
+  lsof -ti :"$PORT" >/dev/null 2>&1 && { echo "[gateway] already running"; return; }
+  load_env
+  echo "[gateway] starting LiteLLM on :$PORT ..."
+  generate_config
+  litellm --config "$CONFIG" --port "$PORT" >"$DIR/litellm.log" 2>&1 &
+  for i in $(seq 1 30); do
+    curl -sf "http://localhost:$PORT/health/liveliness" >/dev/null 2>&1 && { echo "[gateway] ready"; return; }
+    sleep 1
+  done
+  echo "[gateway] timed out"
+}
+
+restart_gateway() {
+  pkill -f "litellm.*config" 2>/dev/null; sleep 1; start_gateway
+}
+
+stop_gateway() {
+  local pid; pid=$(lsof -ti :"$PORT" 2>/dev/null)
+  [ -n "$pid" ] && { kill "$pid"; echo "[gateway] stopped"; return; }
+  echo "[gateway] not running"
+}
+
+claude_env() {
+  export ANTHROPIC_AUTH_TOKEN="dummy"
+  export ANTHROPIC_API_KEY=""
+  [ -f "$DIR/.env.claude" ] && source "$DIR/.env.claude"
+  load_env
+  export ANTHROPIC_BASE_URL="$GATEWAY"
+  # Clear any saved model preference so ANTHROPIC_MODEL env var wins
+  local settings="$HOME/.claude/settings.json"
+  if [ -f "$settings" ] && command -v python3 &>/dev/null; then
+    python3 -c "
+import json, sys
+with open('$settings') as f: d = json.load(f)
+if 'model' in d:
+    d.pop('model')
+    with open('$settings', 'w') as f: json.dump(d, f, indent=2)
+" 2>/dev/null
+  fi
+}
+
+# ── provider ─────────────────────────────────────────────────────────
+PROVIDERS=(claude codex gemini)
+
+get_provider() {
+  [ -f "$PROVIDER_FILE" ] && cat "$PROVIDER_FILE" || echo "claude"
+}
+
+set_provider() {
+  echo "$1" > "$PROVIDER_FILE"
+}
+
+restore_terminal() {
+  printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l\e[?1015l' # disable all mouse modes
+  printf '\e[?25h'                                          # show cursor
+  printf '\e[?47l'                                          # restore normal screen
+  tput cnorm 2>/dev/null                                    # cursor visible (fallback)
+}
+
+launch_provider() {
+  local p; p=$(get_provider)
+  trap restore_terminal EXIT INT TERM
+  case "$p" in
+    claude)
+      claude_env
+      start_gateway
+      claude "$@" ;;
+    codex)
+      load_env
+      codex "$@" ;;
+    gemini)
+      load_env
+      gemini "$@" ;;
+    *)
+      echo "[broke] unknown provider: $p — falling back to claude"
+      claude_env; start_gateway; claude "$@" ;;
+  esac
+  restore_terminal
+}
+
+cmd_provider() {
+  local sub="${1:-}"
+  case "$sub" in
+    list)
+      local cur; cur=$(get_provider)
+      echo ""
+      echo "  Available providers:"
+      for p in "${PROVIDERS[@]}"; do
+        local mark="  "; [ "$p" = "$cur" ] && mark="→ "
+        local cmd_path; cmd_path=$(command -v "$p" 2>/dev/null || echo "not installed")
+        printf "  %s %-10s  %s\n" "$mark" "$p" "$cmd_path"
+      done
+      echo "" ;;
+    swap)
+      local target="${2:-}"
+      if [ -n "$target" ]; then
+        # direct: broke provider swap claude
+        local valid=0
+        for p in "${PROVIDERS[@]}"; do [ "$p" = "$target" ] && valid=1; done
+        if [ "$valid" -eq 0 ]; then
+          echo "[broke] unknown provider: $target"
+          echo "        valid options: ${PROVIDERS[*]}"
+          exit 1
+        fi
+        set_provider "$target"
+        echo "[provider] switched to $target"
+      else
+        # interactive picker
+        local cur; cur=$(get_provider)
+        echo ""
+        echo "  Select provider (current: $cur):"
+        for i in "${!PROVIDERS[@]}"; do
+          local p="${PROVIDERS[$i]}"
+          local mark="  "; [ "$p" = "$cur" ] && mark="*"
+          local avail; avail=$(command -v "$p" &>/dev/null && echo "installed" || echo "not found")
+          printf "  %s %d) %-10s  %s\n" "$mark" "$((i+1))" "$p" "$avail"
+        done
+        echo ""
+        read -rp "  Pick [1-${#PROVIDERS[@]}] > " choice
+        local idx=$((choice - 1))
+        if [ "$idx" -ge 0 ] && [ "$idx" -lt "${#PROVIDERS[@]}" ]; then
+          set_provider "${PROVIDERS[$idx]}"
+          echo "[provider] switched to ${PROVIDERS[$idx]}"
+        else
+          echo "[broke] invalid selection"
+          exit 1
+        fi
+      fi ;;
+    "")
+      echo "[provider] current: $(get_provider)"
+      echo "           run 'broke provider list' to see all options" ;;
+    *)
+      echo "[broke] unknown provider subcommand: $sub"
+      echo "        usage: broke provider [list|swap [name]]"
+      exit 1 ;;
+  esac
+}
+
+# ── main ─────────────────────────────────────────────────────────────
+case "${1:-}" in
+  list)
+    ensure_mapping
+    python3 "$DIR/bin/_mapping.py" list
+    exit 0 ;;
+  model|models)
+    ensure_mapping
+    python3 "$DIR/bin/_mapping.py" models
+    exit 0 ;;
+  swap)
+    ensure_mapping
+    if [ -f "$FREEZE_FILE" ]; then
+      echo "[broke] frozen — swap is blocked. Run 'broke freeze off' to unfreeze."
+      exit 1
+    fi
+    if [ -n "${2:-}" ]; then
+      python3 "$DIR/bin/_mapping.py" team-load "$2" && restart_gateway
+    else
+      python3 "$DIR/bin/_mapping.py" swap && restart_gateway
+    fi
+    exit 0 ;;
+  team)
+    ensure_mapping
+    case "${2:-}" in
+      save)
+        [ -z "${3:-}" ] && { echo "  Usage: broke team save <name> [0|1]"; exit 1; }
+        python3 "$DIR/bin/_mapping.py" team-save "$3" "${4:-1}" ;;
+      load)
+        [ -z "${3:-}" ] && { echo "  Usage: broke team load <name>"; exit 1; }
+        if [ -f "$FREEZE_FILE" ]; then
+          echo "[broke] frozen — team load is blocked. Run 'broke freeze off' to unfreeze."
+          exit 1
+        fi
+        python3 "$DIR/bin/_mapping.py" team-load "$3" && restart_gateway ;;
+      list)
+        python3 "$DIR/bin/_mapping.py" team-list ;;
+      delete|rm)
+        [ -z "${3:-}" ] && { echo "  Usage: broke team delete <name>"; exit 1; }
+        python3 "$DIR/bin/_mapping.py" team-delete "$3" ;;
+      fallback)
+        [ -z "${3:-}" ] && { echo "  Usage: broke team fallback <team> <slot> <fb1> [fb2...]"; exit 1; }
+        [ -z "${4:-}" ] && { echo "  Usage: broke team fallback <team> <slot> <fb1> [fb2...]"; exit 1; }
+        [ -z "${5:-}" ] && { echo "  Usage: broke team fallback <team> <slot> <fb1> [fb2...]"; exit 1; }
+        python3 "$DIR/bin/_mapping.py" team-fallback "${@:3}" ;;
+      access)
+        [ -z "${3:-}" ] && { echo "  Usage: broke team access <team> [--slots s1,s2] [--rpm N] [--tpm N]"; exit 1; }
+        python3 "$DIR/bin/_mapping.py" team-access "${@:3}" ;;
+      *)
+        echo ""
+        echo "  broke team save <name> [cli|route]             save current mapping as a team"
+        echo "  broke team load <name>                         load a team and restart gateway"
+        echo "  broke team list                                show all saved teams"
+        echo "  broke team delete <name>                       remove a team"
+        echo "  broke team fallback <t> <slot> <fb...>         set fallback chain for a slot"
+        echo "  broke team access <t> [--slots s] [--rpm N]    set access policy on a team"
+        echo ""
+        ;;
+    esac
+    exit 0 ;;
+  profile)
+    ensure_mapping
+    case "${2:-}" in
+      new)
+        [ -z "${3:-}" ] && { echo "  Usage: broke profile new <name> <team> [--desc '...'] [--slots s1,s2] [--rpm N] [--tpm N]"; exit 1; }
+        [ -z "${4:-}" ] && { echo "  Usage: broke profile new <name> <team> [--desc '...'] [--slots s1,s2] [--rpm N] [--tpm N]"; exit 1; }
+        python3 "$DIR/bin/_mapping.py" profile-new "${@:3}" ;;
+      load)
+        [ -z "${3:-}" ] && { echo "  Usage: broke profile load <name>"; exit 1; }
+        if [ -f "$FREEZE_FILE" ]; then
+          echo "[broke] frozen — profile load is blocked. Run 'broke freeze off' to unfreeze."
+          exit 1
+        fi
+        python3 "$DIR/bin/_mapping.py" profile-load "$3" && restart_gateway ;;
+      list)
+        python3 "$DIR/bin/_mapping.py" profile-list ;;
+      delete|rm)
+        [ -z "${3:-}" ] && { echo "  Usage: broke profile delete <name>"; exit 1; }
+        python3 "$DIR/bin/_mapping.py" profile-delete "$3" ;;
+      *)
+        echo ""
+        echo "  broke profile new <name> <team> [opts]   create a client profile"
+        echo "    --desc 'text'                           description"
+        echo "    --slots sonnet,haiku                    restrict to these slots"
+        echo "    --rpm N                                 requests/min limit (0=∞)"
+        echo "    --tpm N                                 tokens/min limit (0=∞)"
+        echo "  broke profile load <name>                 apply profile + restart gateway"
+        echo "  broke profile list                        show all profiles"
+        echo "  broke profile delete <name>               remove a profile"
+        echo ""
+        ;;
+    esac
+    exit 0 ;;
+  metrics)
+    python3 "$DIR/bin/_mapping.py" metrics "$@"
+    exit 0 ;;
+  export)
+    python3 "$DIR/bin/_mapping.py" export "${2:-broke-config.json}"
+    exit 0 ;;
+  import)
+    [ -z "${2:-}" ] && { echo "  Usage: broke import <file.json> [--overwrite]"; exit 1; }
+    python3 "$DIR/bin/_mapping.py" import "$2" "${3:-}"
+    exit 0 ;;
+  init)
+    ensure_mapping
+    python3 "$DIR/bin/_mapping.py" init
+    echo "[broke] routing initialised"
+    exit 0 ;;
+  fallback)
+    ensure_mapping
+    [ -z "${2:-}" ] && { echo "  Usage: broke fallback <slot> <fb1> [fb2...]"; exit 1; }
+    [ -z "${3:-}" ] && { echo "  Usage: broke fallback <slot> <fb1> [fb2...]"; exit 1; }
+    python3 "$DIR/bin/_mapping.py" fallback "${@:2}" && restart_gateway
+    exit 0 ;;
+  doctor)
+    python3 "$DIR/bin/_mapping.py" doctor
+    exit 0 ;;
+  explain)
+    ensure_mapping
+    [ -z "${2:-}" ] && { echo "  Usage: broke explain <slot>"; exit 1; }
+    python3 "$DIR/bin/_mapping.py" explain "$2"
+    exit 0 ;;
+  route)
+    ensure_mapping
+    [ -z "${2:-}" ] && { echo "  Usage: broke route <slot>"; exit 1; }
+    python3 "$DIR/bin/_mapping.py" route "$2"
+    exit 0 ;;
+  validate)
+    ensure_mapping
+    python3 "$DIR/bin/_mapping.py" validate
+    exit 0 ;;
+  snapshot)
+    ensure_mapping
+    case "${2:-}" in
+      save)
+        python3 "$DIR/bin/_mapping.py" snapshot-save ;;
+      list)
+        python3 "$DIR/bin/_mapping.py" snapshot-list ;;
+      restore)
+        [ -z "${3:-}" ] && { echo "  Usage: broke snapshot restore <id>"; exit 1; }
+        if [ -f "$FREEZE_FILE" ]; then
+          echo "[broke] frozen — snapshot restore is blocked. Run 'broke freeze off' to unfreeze."
+          exit 1
+        fi
+        python3 "$DIR/bin/_mapping.py" snapshot-restore "$3" && restart_gateway ;;
+      *)
+        echo ""
+        echo "  broke snapshot save              save current mapping as a snapshot"
+        echo "  broke snapshot list              list all saved snapshots"
+        echo "  broke snapshot restore <id>      restore snapshot by index or timestamp"
+        echo "" ;;
+    esac
+    exit 0 ;;
+  freeze)
+    case "${2:-}" in
+      on)
+        touch "$FREEZE_FILE"
+        echo "[freeze] ON — swap is now blocked" ;;
+      off)
+        rm -f "$FREEZE_FILE"
+        echo "[freeze] OFF — swap is allowed" ;;
+      "")
+        if [ -f "$FREEZE_FILE" ]; then
+          echo "[freeze] ON"
+        else
+          echo "[freeze] OFF"
+        fi ;;
+      *)
+        echo "  Usage: broke freeze [on|off]" ;;
+    esac
+    exit 0 ;;
+  probe)
+    ensure_mapping
+    [ -z "${2:-}" ] && { echo "  Usage: broke probe <slot>"; exit 1; }
+    python3 "$DIR/bin/_mapping.py" probe "$2"
+    exit 0 ;;
+  mode)
+    env_claude="$DIR/.env.claude"
+    case "${2:-}" in
+      cli)
+        touch "$env_claude"
+        if grep -q 'BROKE_MODE' "$env_claude" 2>/dev/null; then
+          sed -i "s|export BROKE_MODE=.*|export BROKE_MODE=\"1\"|" "$env_claude"
+        else
+          echo 'export BROKE_MODE="1"' >> "$env_claude"
+        fi
+        echo "[mode] 1 · CLI agent" ;;
+      route)
+        touch "$env_claude"
+        if grep -q 'BROKE_MODE' "$env_claude" 2>/dev/null; then
+          sed -i "s|export BROKE_MODE=.*|export BROKE_MODE=\"0\"|" "$env_claude"
+        else
+          echo 'export BROKE_MODE="0"' >> "$env_claude"
+        fi
+        echo "[mode] 0 · app router" ;;
+      "")
+        broke_mode=$(grep -oP '(?<=BROKE_MODE=")[^"]+' "$env_claude" 2>/dev/null || echo "")
+        if [ "$broke_mode" = "1" ]; then
+          echo "[mode] 1 · CLI agent"
+        elif [ "$broke_mode" = "0" ]; then
+          echo "[mode] 0 · app router"
+        else
+          echo "[mode] unset  (use: broke mode cli  or  broke mode route)"
+        fi ;;
+      *)
+        echo "  Usage: broke mode [cli|route]"
+        echo "         cli   = CLI agent router"
+        echo "         route = app router" ;;
+    esac
+    exit 0 ;;
+  provider) shift; cmd_provider "$@"; exit 0 ;;
+  start)   start_gateway; exit 0 ;;
+  restart) restart_gateway; exit 0 ;;
+  stop)    stop_gateway; exit 0 ;;
+  status)
+    echo ""
+    # gateway process
+    if lsof -ti :"$PORT" >/dev/null 2>&1; then
+      echo "  [gateway]  running :$PORT"
+      # liveliness
+      if curl -sf "http://localhost:$PORT/health/liveliness" >/dev/null 2>&1; then
+        echo "  [proxy]    live"
+      else
+        echo "  [proxy]    not responding"
+      fi
+      # readiness
+      if curl -sf "http://localhost:$PORT/health/readiness" >/dev/null 2>&1; then
+        echo "  [ready]    yes"
+      else
+        echo "  [ready]    no"
+      fi
+    else
+      echo "  [gateway]  stopped"
+    fi
+    echo "  [provider] $(get_provider)"
+    broke_mode=$(grep -oP '(?<=BROKE_MODE=")[^"]+' "$DIR/.env.claude" 2>/dev/null || echo "")
+    if [ "$broke_mode" = "1" ]; then
+      echo "  [mode]     1 · CLI agent"
+    elif [ "$broke_mode" = "0" ]; then
+      echo "  [mode]     0 · app router"
+    else
+      echo "  [mode]     unset"
+    fi
+    echo ""
+    exit 0 ;;
+  help)
+    echo ""
+    echo "  BrokeLLM — free LLM router for Claude Code"
+    echo "  ============================================"
+    echo ""
+    echo "  ROUTING"
+    echo "  broke list                   show routing table"
+    echo "  broke swap                   remap a slot interactively"
+    echo "  broke swap <team>            load a saved team config"
+    echo "  broke fallback <s> <fb...>   set fallback chain for a slot"
+    echo ""
+    echo "  OBSERVABILITY"
+    echo "  broke explain <slot>         show full resolution path + health"
+    echo "  broke route <slot>           dry-run: show what would be routed"
+    echo "  broke doctor                 health check (env, gateway, models)"
+    echo "  broke metrics                live request success/failure stats"
+    echo "  broke probe <slot>           send a live test request to a slot"
+    echo ""
+    echo "  SAFETY"
+    echo "  broke validate               pre-flight config validation"
+    echo "  broke freeze [on|off]        block/unblock swap (anti-drift)"
+    echo ""
+    echo "  SNAPSHOTS"
+    echo "  broke snapshot save          save current mapping"
+    echo "  broke snapshot list          list saved snapshots"
+    echo "  broke snapshot restore <id>  restore snapshot by index"
+    echo ""
+    echo "  TEAMS & PROFILES"
+    echo "  broke team save <name>       save current mapping as a team"
+    echo "  broke team load <name>       load a team and restart gateway"
+    echo "  broke team list              show all saved teams"
+    echo "  broke team delete <name>     remove a team"
+    echo "  broke profile new <n> <t>    create a client profile"
+    echo "  broke profile load <name>    apply profile + restart gateway"
+    echo "  broke profile list           show all profiles"
+    echo ""
+    echo "  GATEWAY"
+    echo "  broke start                  start LiteLLM gateway"
+    echo "  broke stop                   stop LiteLLM gateway"
+    echo "  broke restart                reload config + restart gateway"
+    echo "  broke status                 gateway + provider status"
+    echo ""
+    echo "  PROVIDER"
+    echo "  broke provider               show active provider"
+    echo "  broke provider list          list available providers"
+    echo "  broke provider swap [name]   switch provider (claude/codex/gemini)"
+    echo ""
+    echo "  PROVIDERS (fill in .env):"
+    echo "  OPENROUTER_API_KEY       free-tier models via OpenRouter"
+    echo "  GROQ_API_KEY             fast inference, free tier"
+    echo "  CEREBRAS_API_KEY         low-latency inference, free tier"
+    echo "  GITHUB_TOKEN             GitHub Models (free tier)"
+    echo "  HF_TOKEN                 HuggingFace Free Inference API"
+    echo "  GEMINI_API_KEY           Google Gemini free tier"
+    echo ""
+    exit 0 ;;
+  --help|-h)
+    echo ""
+    echo "  broke              → launch claude with gateway"
+    echo "  broke list         → show routing table"
+    echo "  broke swap         → remap a model interactively"
+    echo "  broke start/stop   → gateway control"
+    echo "  broke restart      → reload config + restart"
+    echo "  broke status       → gateway status"
+    echo ""
+    exit 0 ;;
+  *)
+    launch_provider "$@"
+    ;;
+esac

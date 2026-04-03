@@ -1,0 +1,55 @@
+# Secrets
+.env
+.env.claude
+
+# Generated runtime state
+config.json
+.mapping.json
+.backends.json
+.teams.json
+.profiles.json
+.provider
+.freeze
+.snapshots/
+
+# Logs
+*.log
+curl.log
+
+# Local app/session state
+.remember/
+.claude/
+.gemini_security/
+conductor/
+skills/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.python-version
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+env/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Local exports and scratch files
+broke-config.json
+*.tmp
+test_litellm.json
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
