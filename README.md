@@ -1,234 +1,167 @@
 # BrokeLLM
 
-BrokeLLM is a lightweight CLI wrapper around [LiteLLM](https://github.com/BerriAI/litellm) that lets you route Claude-style model slots such as `sonnet`, `opus`, `haiku`, `default`, and `subagent` to lower-cost or free backends.
+**Local control plane for model-slot routing, fallbacks, and provider switching across CLI coding tools.**  
+*Keep your client speaking in slots. Control what actually answers.*
 
-It exists for one simple reason: sometimes you still need to build, learn, and ship even when paid model access is not realistic.
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-brightgreen.svg)](https://www.python.org/)
+[![LiteLLM](https://img.shields.io/badge/powered%20by-LiteLLM-orange.svg)](https://github.com/BerriAI/litellm)
+[![Status](https://img.shields.io/badge/status-control--plane%20baseline-yellow.svg)]()
 
-## Why This Exists
+---
 
-I built this because I needed a practical way to keep doing the work I am good at and enjoy doing without depending on expensive subscriptions.
+## The Problem
 
-I am a single father and primary caregiver to a young child with autism, and I am currently unemployed. With things being what they are, I needed a way to keep working with LLM tooling using the resources I could actually afford. This project is for anyone else in a similar situation who still wants to write code, experiment, and keep moving.
+Most CLI coding tools assume stable access to expensive frontier models.
 
-## What It Does
+| Situation | The Failure Mode |
+| --- | --- |
+| **Single provider** | One outage, one price hike — your workflow stops |
+| **Hand-editing configs** | Every backend swap requires touching LiteLLM config manually |
+| **No fallback logic** | A dead route has no graceful alternative |
+| **No routing visibility** | You don't know what's actually answering your slots |
+| **Locked-in clients** | `claude`, `codex` assume *you* speak their model names |
 
-BrokeLLM puts a local LiteLLM gateway in front of multiple providers and lets you:
+> *"Most routing tools treat the client as the problem. BrokeLLM treats the routing layer as the solution."*
 
-- map Claude-style slots to cheaper or free models
-- swap routes interactively
-- save and load routing presets as teams
-- define client profiles with access limits
-- configure fallback chains between slots
-- inspect health, routing, and drift warnings
-- launch `claude` or `codex` through the wrapper, with optional provider switching for supported paths
+---
 
-In practice, it gives you a local control plane for model routing without needing to hand-edit LiteLLM config every time you want to change backends.
+## The Solution
 
-If you are new to AI-assisted tools or want a slower, beginner-facing guide first, read [HUMAN_ONLY/FOR_BEGINNERS.md](HUMAN_ONLY/FOR_BEGINNERS.md).
+BrokeLLM puts a **local control plane** in front of multiple providers. Clients keep speaking in abstract slots — `sonnet`, `opus`, `haiku`, `default`, `subagent` — while you control which provider and model actually answers.
 
-## Core Terms
-
-- Slot: what the client asks for, such as `sonnet`, `opus`, `haiku`, `default`, or `subagent`
-- Model: the actual LLM that serves the request, such as `gpt-4o-mini` or `qwen/qwen3.6-plus:free`
-- Provider: where that model is reached, such as OpenRouter, Groq, GitHub Models, or Gemini
-
-The point of BrokeLLM is to let the client keep speaking in slots while you control which provider/model combination actually answers.
-
-## Features
-
-- Claude-style slot routing: `sonnet`, `opus`, `haiku`, `default`, `subagent`
-- LiteLLM-backed gateway on `http://localhost:4000`
-- Interactive and saved route switching
-- Team and profile presets
-- Fallback chain support
-- Drift warnings for floating aliases
-- Health, validation, explain, route, metrics, and probe commands
-- Simple install script
-- Focused regression tests for the control-plane behavior
-
-## Supported Providers in This Repo
-
-This repository currently includes example backends for:
-
-- OpenRouter
-- Groq
-- Cerebras
-- GitHub Models
-- Gemini
-- Hugging Face
-
-LiteLLM itself supports far more providers; BrokeLLM is intentionally a smaller opinionated layer on top.
-
-## Architecture
-
-High-level flow:
-
-```text
+```
 Claude/Codex CLI
-        |
-        v
-     broke
-        |
-        v
-  LiteLLM gateway
-        |
-        v
-  selected backend provider/model
+       │
+       ▼
+    broke              ← control plane: routing, health, drift, fallback
+       │
+       ▼
+ LiteLLM gateway       ← execution layer: enforces routing decisions
+       │
+       ▼
+ selected backend      ← OpenRouter, Groq, Cerebras, GitHub Models, Gemini, HF
 ```
 
-Control-plane behavior is handled in [`bin/_mapping.py`](bin/_mapping.py), and the CLI entrypoint is [`bin/broke`](bin/broke). For the truth boundary around health and drift reporting, see [ARCHITECTURE.md](ARCHITECTURE.md).
+**One stable local interface. Backends become swappable.**
+
+---
+
+## Quickstart
+
+```bash
+git clone https://github.com/B-A-M-N/BrokeLLM.git
+cd BrokeLLM
+./install.sh
+cp .env.template .env
+broke doctor
+broke list
+```
+
+> New to AI-assisted tools? See [`HUMAN_ONLY/FOR_BEGINNERS.md`](HUMAN_ONLY/FOR_BEGINNERS.md) for a beginner-facing guide.
+
+---
+
+## Client Support
+
+| Client | Status | Notes |
+| --- | --- | --- |
+| **Claude CLI** | ✅ Verified | Works against the local LiteLLM gateway |
+| **Codex CLI** | ✅ Verified | Custom provider config via Responses API wire format |
+| **Gemini CLI** | ⚠️ Experimental | Raw endpoint works; CLI path not yet reliable |
+
+---
+
+## Core Concepts
+
+BrokeLLM is built around three ideas:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                                                          │
+│  SLOT          What the client asks for                  │
+│                sonnet, opus, haiku, default, subagent    │
+│                                                          │
+│  CONTROL PLANE Owns routing, fallback, health, drift,    │
+│                and access-policy truth for those slots   │
+│                                                          │
+│  EXECUTION     LiteLLM enforces routing decisions        │
+│  LAYER         against real upstream provider endpoints  │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+The point: **clients keep speaking in slots. You control what actually answers.**
+
+---
+
+## Capabilities
+
+### 🔀 Routing Control
+
+- Claude-style slot routing: `sonnet`, `opus`, `haiku`, `default`, `subagent`
+- Interactive route switching with `broke swap`
+- Team and profile presets for reusable configurations
+- Fallback chain support per slot
+
+### 🔍 Observability & Validation
+
+- Drift warnings for floating aliases
+- Health, validation, explain, route, metrics, and probe commands
+- Focused regression tests for control-plane behavior
+- Single canonical truth boundary — no split-brain state
+
+### ⚡ Execution
+
+- LiteLLM-backed gateway on `http://localhost:4000`
+- Unified local entrypoint for `claude` and `codex`
+- Simple one-command install
+
+---
+
+## Supported Providers
+
+| Provider | Notes |
+| --- | --- |
+| **OpenRouter** | Recommended; includes free-tier models |
+| **Groq** | Fast inference |
+| **Cerebras** | High-throughput option |
+| **GitHub Models** | GPT-4o-mini and others |
+| **Gemini** | Direct endpoint verified; CLI path experimental |
+| **Hugging Face** | Free-tier access |
+
+> LiteLLM itself supports far more providers. BrokeLLM is an intentionally smaller, opinionated layer on top.
+
+---
 
 ## Design Principle: One Truth Boundary
 
-All health, drift, and routing state is resolved through a single canonical normalization boundary in the control plane.
+All health, drift, and routing state is resolved through a **single canonical normalization boundary** in the control plane.
 
-Commands like `doctor`, `route`, `explain`, and `validate` do not compute their own separate view of backend identity. They consume the same shared resolver so that the tool reports one consistent truth about:
+`doctor`, `route`, `explain`, and `validate` do not maintain separate views of backend identity. They consume the same shared resolver — so the tool always reports one consistent truth about:
 
 - which backend a slot maps to
 - whether that backend is healthy
 - whether the route is pinned or floating
 - whether fallback state is relevant
 
-That design rule matters more than any single command. If those surfaces disagree, the control plane stops being trustworthy.
+> *If those surfaces disagree, the control plane stops being trustworthy. That design rule matters more than any single command.*
 
-## Compatibility Status
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full truth-boundary specification.
 
-- `claude`: verified against the local LiteLLM gateway
-- `codex`: verified against the local LiteLLM gateway through a custom Codex provider config
-- `gemini`: raw Gemini-format gateway calls work, but Gemini CLI is not currently reliable through BrokeLLM
-
-Codex compatibility works when BrokeLLM is configured as a custom Codex model provider using the OpenAI Responses wire format against the local LiteLLM gateway.
-
-On April 3, 2026, this live check succeeded:
-
-```bash
-env BROKE_DUMMY=dummy \
-  codex exec \
-  -c 'model_provider="broke"' \
-  -c 'model_providers.broke={name="BrokeLLM",base_url="http://localhost:4000/v1",env_key="BROKE_DUMMY",wire_api="responses"}' \
-  -m 'GitHub/GPT-4o-mini' --skip-git-repo-check --json \
-  "Respond with exactly OK and nothing else."
-```
-
-The previous `OPENAI_BASE_URL` env override approach was not reliable for Codex and is no longer the recommended path here.
-
-Gemini is a different case. On April 3, 2026, direct requests to BrokeLLM's Google-style endpoint succeeded:
-
-```bash
-curl -sS http://localhost:4000/v1beta/models/GitHub/GPT-4o-mini:generateContent \
-  -H 'x-goog-api-key: dummy' \
-  -H 'Content-Type: application/json' \
-  --data '{"contents":[{"parts":[{"text":"Say OK"}]}]}'
-```
-
-That returned a valid Gemini-format response through LiteLLM.
-
-The Gemini CLI itself was not reliable against the same gateway. Even with:
-
-- `GOOGLE_GEMINI_BASE_URL=http://localhost:4000`
-- `GEMINI_API_KEY_AUTH_MECHANISM=bearer`
-- `--model 'GitHub/GPT-4o-mini'`
-
-the CLI still internally routed requests to `Gemini/2.0-Flash` in this environment and failed because BrokeLLM does not expose that model group. In other words:
-
-- BrokeLLM's Gemini-compatible HTTP endpoint works
-- Gemini CLI's internal model routing does not currently make this a trustworthy end-to-end integration
-
-Until that changes upstream or a stable workaround is found, this repo should not claim Gemini CLI compatibility.
-
-## Installation
-
-### Requirements
-
-- Python 3.8+
-- `curl`
-- `lsof`
-- one or more provider API keys
-- the CLI you want to launch: `claude` or `codex`
-
-### Install
-
-```bash
-./install.sh
-```
-
-The installer will:
-
-- verify Python
-- install `litellm[proxy]`
-- link `broke` into your `PATH`
-- create `.env` from `.env.template` if needed
-- initialize the default routing files
-
-## Configuration
-
-Copy the template if needed:
-
-```bash
-cp .env.template .env
-```
-
-Fill in whichever keys you plan to use:
-
-- `OPENROUTER_API_KEY`
-- `GROQ_API_KEY`
-- `CEREBRAS_API_KEY`
-- `GITHUB_TOKEN`
-- `GEMINI_API_KEY`
-- `HF_TOKEN`
-
-You do not need every key. Only the providers you actively route to need valid credentials.
-
-## Stability Notes
-
-Free-tier models and routes can change availability, latency, quota behavior, or backing model behavior without notice.
-
-If you want a more stable setup:
-
-- prefer pinned model entries over floating aliases
-- define fallback chains for important slots
-- save known-good mappings as teams
-- use `broke validate` and `broke doctor` before relying on a route
-
-## Quick Start
-
-Start the wrapper:
-
-```bash
-broke
-```
-
-Start only the gateway:
-
-```bash
-broke start
-```
-
-Show the current mapping:
-
-```bash
-broke list
-```
-
-Swap a slot interactively:
-
-```bash
-broke swap
-```
-
-Validate config:
-
-```bash
-broke validate
-```
-
-Run health checks:
-
-```bash
-broke doctor
-```
+---
 
 ## Commands
+
+### Gateway
+
+```bash
+broke            # start the full wrapper
+broke start      # start only the gateway
+broke stop
+broke restart
+broke status
+```
 
 ### Routing
 
@@ -251,10 +184,7 @@ broke team fallback <team> <slot> <fb1> [fb2...]
 broke team access <team> [--slots sonnet,haiku] [--rpm N] [--tpm N]
 ```
 
-Notes:
-
-- `0` means unlimited for `rpm` and `tpm`
-- omitted values mean "leave unchanged"
+> `0` means unlimited for `rpm` and `tpm`. Omitted values mean "leave unchanged."
 
 ### Profiles
 
@@ -263,15 +193,6 @@ broke profile new <name> <team> [--desc "text"] [--slots sonnet,haiku] [--rpm N]
 broke profile load <name>
 broke profile list
 broke profile delete <name>
-```
-
-### Gateway
-
-```bash
-broke start
-broke stop
-broke restart
-broke status
 ```
 
 ### Observability
@@ -293,6 +214,14 @@ broke snapshot list
 broke snapshot restore <id>
 ```
 
+### Safety Controls
+
+```bash
+broke freeze        # toggle freeze
+broke freeze on     # block swap-style state changes
+broke freeze off
+```
+
 ### Provider Selection
 
 ```bash
@@ -301,39 +230,9 @@ broke provider list
 broke provider swap [claude|codex|gemini]
 ```
 
-### Safety Controls
+---
 
-```bash
-broke freeze
-broke freeze on
-broke freeze off
-```
-
-When frozen, swap-style state changes are blocked.
-
-## Examples
-
-Route `sonnet` through GitHub Models, `haiku` through OpenRouter, and inspect the result:
-
-```bash
-broke list
-broke explain sonnet
-broke route sonnet
-```
-
-Save a known-good setup:
-
-```bash
-broke team save work
-```
-
-Create a restricted profile for an app:
-
-```bash
-broke profile new myapp work --desc "Production app" --slots sonnet --rpm 30
-```
-
-Example: diagnosing a broken route
+## Example: Diagnosing a Broken Route
 
 ```bash
 broke doctor
@@ -341,69 +240,201 @@ broke explain sonnet
 broke route sonnet
 ```
 
-Use these together to separate different failure classes:
+Use these together to isolate different failure classes:
 
-- `broke doctor` tells you whether the gateway and upstream backends are healthy
-- `broke explain sonnet` shows the configured slot, backend, health view, and fallback chain
-- `broke route sonnet` shows what would actually be selected for that slot right now
+| Command | What It Tells You |
+| --- | --- |
+| `broke doctor` | Whether the gateway and upstream backends are healthy |
+| `broke explain sonnet` | Configured slot, backend, health view, and fallback chain |
+| `broke route sonnet` | What would actually be selected for that slot right now |
 
-That helps distinguish:
+This separates: provider failure / bad mapping state / access-policy blocking / fallback activation risk.
 
-- provider failure
-- bad mapping state
-- access-policy blocking
-- fallback activation risk
+---
+
+## Example: Routing Across Providers
+
+Route `sonnet` through GitHub Models, `haiku` through OpenRouter, inspect, save:
+
+```bash
+broke list
+broke explain sonnet
+broke route sonnet
+broke team save work
+```
+
+Create a restricted profile for a production app:
+
+```bash
+broke profile new myapp work --desc "Production app" --slots sonnet --rpm 30
+```
+
+---
+
+## Compatibility Notes
+
+**Codex** — verified on April 3, 2026 using a custom provider configuration over the Responses API wire format:
+
+```bash
+env BROKE_DUMMY=dummy \
+  codex exec \
+  -c 'model_provider="broke"' \
+  -c 'model_providers.broke={name="BrokeLLM",base_url="http://localhost:4000/v1",env_key="BROKE_DUMMY",wire_api="responses"}' \
+  -m 'GitHub/GPT-4o-mini' --skip-git-repo-check --json \
+  "Respond with exactly OK and nothing else."
+```
+
+> The previous `OPENAI_BASE_URL` env override approach was not reliable for Codex and is no longer the recommended path.
+
+**Gemini** — BrokeLLM's Google-compatible HTTP endpoint works. The Gemini CLI itself is not reliable through BrokeLLM: even with `GOOGLE_GEMINI_BASE_URL` and `GEMINI_API_KEY_AUTH_MECHANISM` set, the CLI internally routes to `Gemini/2.0-Flash` which BrokeLLM does not expose. Until that changes upstream, Gemini CLI compatibility should not be claimed.
+
+---
 
 ## Verification
-
-Default verification path:
 
 ```bash
 make verify
 ```
 
-Current regression coverage includes:
+Current regression coverage:
 
-- health agreement across `doctor`, `route`, and `explain`
-- pinned-state persistence during swap
-- floating alias drift warnings
-- zero-value limit semantics
-- installer interpreter consistency
-- env-name consistency
+- Health agreement across `doctor`, `route`, and `explain`
+- Pinned-state persistence during swap
+- Floating alias drift warnings
+- Zero-value limit semantics
+- Installer interpreter consistency
+- Env-name consistency
 
-## License
+---
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE).
+## Installation
 
-LiteLLM itself is a separate upstream project with its own licensing and enterprise/commercial components. Use and review upstream terms independently if you distribute or extend those parts.
+### Requirements
 
-## Disclaimer
+- Python 3.8+
+- `curl`
+- `lsof`
+- One or more provider API keys
+- `claude` or `codex` CLI installed
 
-BrokeLLM is a personal open-source tool. It is not affiliated with Anthropic, OpenAI, Google, GitHub, Groq, Cerebras, Hugging Face, or BerriAI.
+### Install
 
-You are responsible for:
+```bash
+./install.sh
+```
 
-- your API usage and billing
-- your provider terms
-- your local environment security
-- pinning and reviewing dependency versions appropriately
+The installer will:
+
+- Verify Python
+- Install `litellm[proxy]`
+- Link `broke` into your `PATH`
+- Create `.env` from `.env.template` if needed
+- Initialize the default routing files
+
+### Configuration
+
+```bash
+cp .env.template .env
+```
+
+Fill in whichever keys you plan to use:
+
+```env
+OPENROUTER_API_KEY=
+GROQ_API_KEY=
+CEREBRAS_API_KEY=
+GITHUB_TOKEN=
+GEMINI_API_KEY=
+HF_TOKEN=
+```
+
+You do not need every key — only the providers you actively route to need valid credentials.
+
+---
+
+## Stability Notes
+
+Free-tier models and routes can change availability, latency, quota behavior, or backing model behavior without notice.
+
+For a more stable setup:
+
+- Prefer pinned model entries over floating aliases
+- Define fallback chains for important slots
+- Save known-good mappings as teams
+- Run `broke validate` and `broke doctor` before relying on a route
+
+---
+
+## When To Use BrokeLLM
+
+| Situation | Good Fit? |
+| --- | --- |
+| You want cheaper or mixed-provider routing behind a stable local interface | ✅ |
+| You need deterministic slot routing for CLI AI tools | ✅ |
+| You care about health, drift, and explainability — not blind proxying | ✅ |
+| You want to preserve the client-facing slot experience while changing backends freely | ✅ |
+| You only use one provider and don't care about routing behavior | ❌ |
+| You want fully managed SaaS simplicity instead of a local control plane | ❌ |
+| You don't need observability, fallback chains, or slot abstraction | ❌ |
+
+---
+
+## Why I Built This
+
+Most CLI coding tools assume you have stable access to expensive frontier models.
+
+I did not.
+
+BrokeLLM exists because I needed a way to keep using those tools without being locked into a single provider or cost structure. The goal was not to emulate a provider. The goal was to create a **local control plane** that lets the client experience stay the same while the backend becomes flexible, cheaper, and under user control.
+
+I am a single father and primary caregiver to a young child with autism, and I am currently unemployed. This project is for anyone else in a similar situation who still wants to write code, experiment, and keep moving.
+
+---
+
+## Architecture
+
+Control-plane behavior lives in [`bin/_mapping.py`](bin/_mapping.py).  
+CLI entrypoint is [`bin/broke`](bin/broke).  
+Truth-boundary specification is in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+---
 
 ## Contributing
 
 Issues and improvements are welcome, especially around:
 
-- provider presets
-- safer install and bootstrap paths
-- better observability
-- more test coverage
-- documentation for constrained-budget workflows
+- **Provider presets** — new backends and example configs
+- **Safer install paths** — better bootstrap and dependency handling
+- **Observability** — richer health and drift reporting
+- **Test coverage** — import/export, snapshot, and edge-case flows
+- **Documentation** — constrained-budget and offline workflows
+
+---
 
 ## Project Status
 
-Current milestone: control-plane correctness baseline.
+**Current milestone:** control-plane correctness baseline.
 
-Suggested first follow-ups:
+Suggested next steps:
+- Add tests around import/export and snapshot flows
+- Cut a release tag after checkpointing the current state
 
-- add more tests around import/export and snapshot flows
-- put the project under git if it is not already
-- cut a release tag after checkpointing the current state
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+LiteLLM is a separate upstream project with its own licensing and enterprise/commercial components. Review upstream terms independently if you distribute or extend those parts.
+
+---
+
+## Disclaimer
+
+BrokeLLM is a personal open-source tool. It is not affiliated with Anthropic, OpenAI, Google, GitHub, Groq, Cerebras, Hugging Face, or BerriAI.
+
+You are responsible for your API usage and billing, your provider terms, your local environment security, and pinning and reviewing dependency versions appropriately.
+
+---
+
+*Keep your client speaking in slots. Control what actually answers.* ⚡
