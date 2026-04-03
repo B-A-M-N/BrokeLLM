@@ -5,19 +5,17 @@
 
 ---
 
-This guide is divided into three parts:
+This guide has three parts:
 
-| Part | What It Covers |
-| --- | --- |
-| **Part 1: AI for Humans** | How to think clearly and stay safe |
-| **Part 2: Technical Setup** | How to get BrokeLLM running |
-| **Part 3: Using BrokeLLM** | How to actually work with it without confusing yourself or breaking your setup |
+- [Part 1: AI for Humans](#part-1-ai-for-humans)  
+  How to think clearly and stay safe
+- [Part 2: Step-by-Step Setup Guide](#part-2-step-by-step-setup-guide)  
+  How to get BrokeLLM running
+- [Part 3: Using BrokeLLM Without Confusing Yourself](#part-3-using-brokellm-without-confusing-yourself)  
+  How to actually use it without creating your own confusion
 
-## Jump Menu
+If you are coming back later and just need the practical bits:
 
-- [Part 1: AI for Humans](#part-1-ai-for-humans)
-- [Part 2: Step-by-Step Setup Guide](#part-2-step-by-step-setup-guide)
-- [Part 3: Using BrokeLLM Without Confusing Yourself](#part-3-using-brokellm-without-confusing-yourself)
 - [Step 4: Check that the setup is valid](#step-4-check-that-the-setup-is-valid)
 - [Step 7: Change a route](#step-7-change-a-route)
 - [Diagnose problems in the right order](#4-diagnose-problems-in-the-right-order)
