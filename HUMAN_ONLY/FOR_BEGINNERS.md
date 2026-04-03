@@ -1,16 +1,24 @@
 # BrokeLLM: The Complete Beginner's Manual
 
-If you already understand BrokeLLM's core concepts, you can skip to the main README.
-This guide is for users who want a slower, more explicit walkthrough.
+**A slower, more explicit walkthrough for users who want it.**  
+*If you already understand BrokeLLM's core concepts, skip to the main [README](../README.md).*
 
-Welcome. This document is divided into three parts: **Understanding the AI** (how to think clearly and stay safe), **Technical Setup** (how to get BrokeLLM running), and **Using BrokeLLM** (how to actually work with it without confusing yourself or breaking your setup).
+---
+
+This guide is divided into three parts:
+
+| Part | What It Covers |
+| --- | --- |
+| **Part 1: AI for Humans** | How to think clearly and stay safe |
+| **Part 2: Technical Setup** | How to get BrokeLLM running |
+| **Part 3: Using BrokeLLM** | How to actually work with it without confusing yourself or breaking your setup |
 
 ---
 
 # Part 1: AI for Humans
 ### Understanding It, Working With It, and Not Getting Lost
 
-If you are new to AI tools, the most important thing to understand is this: AI can be useful, impressive, and productive without being magical. A lot of people get into trouble because they confuse a convincing answer with a correct one.
+If you are new to AI tools, the most important thing to understand is this: **AI can be useful, impressive, and productive without being magical.** A lot of people get into trouble because they confuse a convincing answer with a correct one.
 
 This section is here to help you think clearly before you start using BrokeLLM or any AI-assisted coding workflow.
 
@@ -22,7 +30,7 @@ AI can sound personal, confident, funny, humble, emotional, or wise. That does *
 
 It is trained to produce helpful-looking responses that match the context in front of it. If you ask it to be technical, it becomes technical. If you ask it to be warm or casual, it becomes warm or casual. That is not personhood. That is pattern-matching.
 
-This matters because once you start treating it like a person, you stop evaluating it like a tool.
+> *This matters because once you start treating it like a person, you stop evaluating it like a tool.*
 
 ---
 
@@ -32,7 +40,7 @@ One of the biggest traps with AI is that it reflects your own ideas back to you 
 
 Sometimes it really does help you find a useful idea. But much more often, it is taking your prompt, your assumptions, and your preferred framing and turning them into a convincing answer.
 
-That is dangerous if you stop checking the answer.
+**That is dangerous if you stop checking the answer.**
 
 When you feel the "this is brilliant" rush, stop and ask:
 
@@ -49,7 +57,7 @@ That is how you turn hype into judgment.
 
 A large language model is an extremely advanced autocomplete system. It predicts likely next pieces of text based on patterns from training data and the context you gave it.
 
-It does not know what is true. It predicts what is likely to sound correct.
+**It does not know what is true. It predicts what is likely to sound correct.**
 
 That means:
 
@@ -58,7 +66,7 @@ That means:
 - it can be right for the wrong reasons
 - it can be wrong in ways that sound polished
 
-Do not trust style. Trust evidence.
+> *Do not trust style. Trust evidence.*
 
 ---
 
@@ -68,10 +76,12 @@ AI is designed to be cooperative. That makes it easier to use, but it also makes
 
 The trap usually looks like this:
 
+```
 1. You ask for help.
 2. The AI responds in a clear, confident tone.
 3. You assume the confidence means the answer is reliable.
 4. The answer turns out to be subtly wrong.
+```
 
 When that happens, many people blame themselves instead of questioning the model output.
 
@@ -109,7 +119,7 @@ That means it can:
 
 The longer and messier the session, the more you should expect drift.
 
-That is why documentation, tests, and explicit commands matter so much.
+**That is why documentation, tests, and explicit commands matter so much.**
 
 ---
 
@@ -119,16 +129,21 @@ If you are using AI to help you code or automate work, you do not just need "a m
 
 That is what a control plane is for.
 
-A control plane is the part of a system that lets you see, control, and reason about what is happening.
+```
+┌──────────────────────────────────────────────────────────────┐
+│  A control plane is the part of a system that lets you       │
+│  see, control, and reason about what is happening.           │
+└──────────────────────────────────────────────────────────────┘
+```
 
 BrokeLLM exists to make model routing more:
 
-- inspectable
-- deterministic
-- recoverable
-- debuggable
-
-Instead of guessing which backend you are hitting, or hand-editing a proxy config every time, you get a repeatable interface that exposes health, routing, fallback, and drift.
+| Property | What It Means |
+| --- | --- |
+| **Inspectable** | You can see what slot routes to what backend |
+| **Deterministic** | The same config produces the same routing |
+| **Recoverable** | You can save and restore known-good states |
+| **Debuggable** | Health, drift, and fallback state are all visible |
 
 That is safer than improvising.
 
@@ -145,7 +160,7 @@ The practical rules are simple:
 5. Keep backups, snapshots, or commits before risky changes.
 6. Prefer deterministic flows over clever ones.
 
-AI works best when mistakes are visible and recoverable.
+> *AI works best when mistakes are visible and recoverable.*
 
 ---
 
@@ -168,7 +183,7 @@ That is what makes it useful.
 
 ## 10. Bottom line
 
-AI is a co-pilot, not a pilot.
+> *AI is a co-pilot, not a pilot.*
 
 It can help you think, draft, compare, and implement. But it does not remove your responsibility to verify what is happening.
 
@@ -183,7 +198,7 @@ That is the mindset this project is built around.
 
 This section assumes you are new to BrokeLLM and may be new to local developer tooling in general.
 
-Take it one step at a time.
+**Take it one step at a time.**
 
 ---
 
@@ -191,12 +206,13 @@ Take it one step at a time.
 
 Make sure you have:
 
-1. Python 3.8 or newer
-2. `curl`
-3. `lsof`
-4. at least one provider API key
-5. the CLI you want to launch through BrokeLLM:
-   `claude`, `codex`, or `gemini`
+| Requirement | Notes |
+| --- | --- |
+| Python 3.8 or newer | Check with `python3 --version` |
+| `curl` | Usually pre-installed on macOS/Linux |
+| `lsof` | Usually pre-installed on macOS/Linux |
+| At least one provider API key | OpenRouter, Groq, Cerebras, GitHub, Gemini, or HF |
+| A supported CLI | `claude`, `codex`, or `gemini` |
 
 If you do not have all of that yet, stop here and get those pieces in place first.
 
@@ -204,9 +220,7 @@ If you do not have all of that yet, stop here and get those pieces in place firs
 
 ## Step 1: Open the project folder
 
-Open a terminal and change into the BrokeLLM directory.
-
-Example:
+Open a terminal and change into the BrokeLLM directory:
 
 ```bash
 cd /path/to/BrokeLLM
@@ -217,8 +231,6 @@ If you are already in the folder, that is fine.
 ---
 
 ## Step 2: Run the installer
-
-Run:
 
 ```bash
 ./install.sh
@@ -232,32 +244,28 @@ The installer will:
 - create a `.env` file from the template if needed
 - initialize the default mapping files
 
-If the installer prints warnings, read them. They are usually actionable.
+> If the installer prints warnings, read them. They are usually actionable.
 
 ---
 
 ## Step 3: Add your API keys
 
-Open `.env` in a text editor.
+Open `.env` in a text editor. You only need to fill in the providers you actually plan to use:
 
-You only need to fill in the providers you actually plan to use.
-
-Common options in this repo:
-
-- `OPENROUTER_API_KEY`
-- `GROQ_API_KEY`
-- `CEREBRAS_API_KEY`
-- `GITHUB_TOKEN`
-- `GEMINI_API_KEY`
-- `HF_TOKEN`
+```env
+OPENROUTER_API_KEY=
+GROQ_API_KEY=
+CEREBRAS_API_KEY=
+GITHUB_TOKEN=
+GEMINI_API_KEY=
+HF_TOKEN=
+```
 
 Leave unused keys alone.
 
 ---
 
 ## Step 4: Check that the setup is valid
-
-Run:
 
 ```bash
 broke validate
@@ -273,21 +281,21 @@ broke doctor
 
 This checks the live gateway and upstream route health.
 
-If `validate` passes but `doctor` fails, your static config is probably fine and the issue is more likely gateway startup, credentials, or upstream availability.
+| Result | What It Likely Means |
+| --- | --- |
+| `validate` passes, `doctor` passes | You are ready to go |
+| `validate` passes, `doctor` fails | Gateway startup, credentials, or upstream availability issue |
+| `validate` fails | Fix your static config first before anything else |
 
 ---
 
 ## Step 5: Start the gateway
 
-Run:
-
 ```bash
 broke start
 ```
 
-This starts LiteLLM on port `4000` using the generated config.
-
-You can confirm status with:
+This starts LiteLLM on port `4000` using the generated config. Confirm status with:
 
 ```bash
 broke status
@@ -297,18 +305,18 @@ broke status
 
 ## Step 6: See what routes where
 
-Run:
-
 ```bash
 broke list
 ```
 
 This shows your slot-to-backend routing table.
 
-Remember:
-
-- the slot is what the client asks for
-- the backend is what actually answers
+```
+┌─────────────────────────────────────────────────────┐
+│  slot    → what the client asks for                  │
+│  backend → what actually answers                     │
+└─────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -320,22 +328,13 @@ To change a route interactively:
 broke swap
 ```
 
-You will be asked:
-
-1. which slot to change
-2. which backend to use
-
-After changing a route, run:
+You will be asked which slot to change and which backend to use. After swapping, inspect the result:
 
 ```bash
 broke explain sonnet
 ```
 
-Replace `sonnet` with whatever slot you changed.
-
-If this output does not make sense, stop and fix that before continuing.
-
-That will show the selected backend, fallback chain, health view, and other routing details.
+Replace `sonnet` with whatever slot you changed. If this output does not make sense, stop and fix that before continuing. It shows the selected backend, fallback chain, health view, and other routing details.
 
 ---
 
@@ -347,19 +346,17 @@ Once you get a configuration you like, save it:
 broke team save work
 ```
 
-That way you can reload it later:
+Reload it any time:
 
 ```bash
 broke team load work
 ```
 
-This matters more than beginners usually realize. If you do not save known-good states, every future change becomes harder to reason about.
+> This matters more than beginners usually realize. If you do not save known-good states, every future change becomes harder to reason about.
 
 ---
 
 # Part 3: Using BrokeLLM Without Confusing Yourself
-
-This is the practical operating section.
 
 ---
 
@@ -373,62 +370,48 @@ broke list
 broke validate
 ```
 
-That gives you a baseline.
-
-Do not start swapping models before you know what the current state is.
+That gives you a baseline. **Do not start swapping models before you know what the current state is.**
 
 ---
 
 ## 2. Use `explain` when you feel lost
 
-If you do not understand why a slot is behaving the way it is, use:
-
 ```bash
 broke explain sonnet
 ```
 
-This is one of the most important commands in the project.
-
-It tells you:
+This is one of the most important commands in the project. It tells you:
 
 - the selected backend
 - the fallback chain
 - whether the required key is present
 - the health view for that route
 
-It is the fastest way to reduce confusion.
+**It is the fastest way to reduce confusion.**
 
 ---
 
 ## 3. Use `route` when you want the dry-run view
 
-If you want to see what BrokeLLM would choose without making a live request:
-
 ```bash
 broke route sonnet
 ```
 
-This is useful when you are checking whether a mapping looks right before you actually use it.
+This shows what BrokeLLM would choose without making a live request. Useful when you are checking whether a mapping looks right before you actually use it.
 
 ---
 
 ## 4. Diagnose problems in the right order
 
-If something feels broken, use this order:
+If something feels broken, use this sequence:
 
-1. `broke validate`
-2. `broke doctor`
-3. `broke explain <slot>`
-4. `broke route <slot>`
-5. `broke probe <slot>`
-
-Why this order:
-
-- `validate` checks static config
-- `doctor` checks live gateway and upstream health
-- `explain` checks the slot’s configured meaning
-- `route` checks the dry-run routing view
-- `probe` performs a real end-to-end test
+| Step | Command | What It Checks |
+| --- | --- | --- |
+| 1 | `broke validate` | Static config |
+| 2 | `broke doctor` | Live gateway and upstream health |
+| 3 | `broke explain <slot>` | The slot's configured meaning |
+| 4 | `broke route <slot>` | Dry-run routing view |
+| 5 | `broke probe <slot>` | Real end-to-end test |
 
 That sequence helps you separate configuration mistakes from provider issues.
 
@@ -436,18 +419,13 @@ That sequence helps you separate configuration mistakes from provider issues.
 
 ## 5. Use fallbacks on purpose
 
-Free-tier and low-cost backends are useful, but they are not always stable.
-
-That means fallback chains are not optional decoration. They are part of how you build a usable setup.
-
-Example:
+Free-tier and low-cost backends are useful, but they are not always stable. Fallback chains are not optional decoration — **they are part of how you build a usable setup.**
 
 ```bash
 broke fallback sonnet haiku default
 ```
 
 That says:
-
 - try `sonnet`'s configured backend first
 - if that fails, use `haiku`
 - if that fails, use `default`
@@ -457,8 +435,6 @@ Use fallbacks for resilience, not for hiding confusion.
 ---
 
 ## 6. Freeze when you want stability
-
-If you want to stop accidental route changes:
 
 ```bash
 broke freeze on
@@ -489,7 +465,7 @@ broke snapshot list
 broke snapshot restore 0
 ```
 
-Beginners should use this aggressively. Recovery is more important than pride.
+> Beginners should use this aggressively. Recovery is more important than pride.
 
 ---
 
@@ -505,24 +481,26 @@ You should expect:
 - drifting floating aliases
 - different latency and output quality across providers
 
-That is normal. The point is not perfection. The point is having a workflow that remains understandable and recoverable under constraints.
+That is normal. The point is not perfection. **The point is having a workflow that remains understandable and recoverable under constraints.**
 
 ---
 
 ## 9. Recommended beginner workflow
 
-If you are just starting, use this loop:
+Use this loop when you are just starting out:
 
-1. `broke validate`
-2. `broke doctor`
-3. `broke list`
-4. `broke explain sonnet`
+```
+1. broke validate
+2. broke doctor
+3. broke list
+4. broke explain sonnet
 5. make one change
-6. `broke route sonnet`
-7. `broke probe sonnet`
+6. broke route sonnet
+7. broke probe sonnet
 8. save the result as a team if it works
+```
 
-One change at a time. One check at a time. That is how you avoid self-inflicted confusion.
+**One change at a time. One check at a time.** That is how you avoid self-inflicted confusion.
 
 ---
 
@@ -536,11 +514,13 @@ Do not chase the perfect free stack on day one.
 
 Start with:
 
-- one provider that works
-- one slot you understand
-- one saved configuration
-- one repeatable verification flow
+```
+✓ one provider that works
+✓ one slot you understand
+✓ one saved configuration
+✓ one repeatable verification flow
+```
 
 Then expand from there.
 
-The goal is not to look advanced. The goal is to keep building.
+> *The goal is not to look advanced. The goal is to keep building.*
