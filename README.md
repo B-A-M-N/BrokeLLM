@@ -24,6 +24,16 @@ BrokeLLM puts a local LiteLLM gateway in front of multiple providers and lets yo
 
 In practice, it gives you a local control plane for model routing without needing to hand-edit LiteLLM config every time you want to change backends.
 
+If you are new to AI-assisted tools or want a slower, beginner-facing guide first, read [HUMAN_ONLY/FOR_BEGINNERS.md](HUMAN_ONLY/FOR_BEGINNERS.md).
+
+## Core Terms
+
+- Slot: what the client asks for, such as `sonnet`, `opus`, `haiku`, `default`, or `subagent`
+- Model: the actual LLM that serves the request, such as `gpt-4o-mini` or `qwen/qwen3.6-plus:free`
+- Provider: where that model is reached, such as OpenRouter, Groq, GitHub Models, or Gemini
+
+The point of BrokeLLM is to let the client keep speaking in slots while you control which provider/model combination actually answers.
+
 ## Features
 
 - Claude-style slot routing: `sonnet`, `opus`, `haiku`, `default`, `subagent`
@@ -68,6 +78,19 @@ Claude/Codex/Gemini CLI
 
 Control-plane behavior is handled in [`bin/_mapping.py`](bin/_mapping.py), and the CLI entrypoint is [`bin/broke`](bin/broke). For the truth boundary around health and drift reporting, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Design Principle: One Truth Boundary
+
+All health, drift, and routing state is resolved through a single canonical normalization boundary in the control plane.
+
+Commands like `doctor`, `route`, `explain`, and `validate` do not compute their own separate view of backend identity. They consume the same shared resolver so that the tool reports one consistent truth about:
+
+- which backend a slot maps to
+- whether that backend is healthy
+- whether the route is pinned or floating
+- whether fallback state is relevant
+
+That design rule matters more than any single command. If those surfaces disagree, the control plane stops being trustworthy.
+
 ## Installation
 
 ### Requirements
@@ -110,6 +133,17 @@ Fill in whichever keys you plan to use:
 - `HF_TOKEN`
 
 You do not need every key. Only the providers you actively route to need valid credentials.
+
+## Stability Notes
+
+Free-tier models and routes can change availability, latency, quota behavior, or backing model behavior without notice.
+
+If you want a more stable setup:
+
+- prefer pinned model entries over floating aliases
+- define fallback chains for important slots
+- save known-good mappings as teams
+- use `broke validate` and `broke doctor` before relying on a route
 
 ## Quick Start
 
@@ -253,6 +287,27 @@ Create a restricted profile for an app:
 ```bash
 broke profile new myapp work --desc "Production app" --slots sonnet --rpm 30
 ```
+
+Example: diagnosing a broken route
+
+```bash
+broke doctor
+broke explain sonnet
+broke route sonnet
+```
+
+Use these together to separate different failure classes:
+
+- `broke doctor` tells you whether the gateway and upstream backends are healthy
+- `broke explain sonnet` shows the configured slot, backend, health view, and fallback chain
+- `broke route sonnet` shows what would actually be selected for that slot right now
+
+That helps distinguish:
+
+- provider failure
+- bad mapping state
+- access-policy blocking
+- fallback activation risk
 
 ## Verification
 
