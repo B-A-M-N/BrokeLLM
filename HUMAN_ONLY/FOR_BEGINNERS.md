@@ -1,5 +1,8 @@
 # BrokeLLM: The Complete Beginner's Manual
 
+If you already understand BrokeLLM's core concepts, you can skip to the main README.
+This guide is for users who want a slower, more explicit walkthrough.
+
 Welcome. This document is divided into three parts: **Understanding the AI** (how to think clearly and stay safe), **Technical Setup** (how to get BrokeLLM running), and **Using BrokeLLM** (how to actually work with it without confusing yourself or breaking your setup).
 
 ---
@@ -45,6 +48,8 @@ That is how you turn hype into judgment.
 ## 3. AI is a guessing machine
 
 A large language model is an extremely advanced autocomplete system. It predicts likely next pieces of text based on patterns from training data and the context you gave it.
+
+It does not know what is true. It predicts what is likely to sound correct.
 
 That means:
 
@@ -113,6 +118,8 @@ That is why documentation, tests, and explicit commands matter so much.
 If you are using AI to help you code or automate work, you do not just need "a model." You need a stable way to understand what that model is actually doing.
 
 That is what a control plane is for.
+
+A control plane is the part of a system that lets you see, control, and reason about what is happening.
 
 BrokeLLM exists to make model routing more:
 
@@ -325,6 +332,8 @@ broke explain sonnet
 ```
 
 Replace `sonnet` with whatever slot you changed.
+
+If this output does not make sense, stop and fix that before continuing.
 
 That will show the selected backend, fallback chain, health view, and other routing details.
 

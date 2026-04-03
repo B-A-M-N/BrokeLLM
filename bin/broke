@@ -75,6 +75,55 @@ if 'model' in d:
   fi
 }
 
+codex_env() {
+  load_env
+  export BROKE_CODEX_API_KEY="dummy"
+}
+
+get_slot_label() {
+  local slot="${1:-sonnet}"
+  python3 - <<PY 2>/dev/null
+import json
+from pathlib import Path
+mapping = Path("$MAPPING")
+slot = "$slot"
+if mapping.exists():
+    data = json.loads(mapping.read_text())
+    entry = data.get(slot) or data.get("default") or {}
+    print(entry.get("label", ""))
+PY
+}
+
+has_model_arg() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      -m|--model|--model=*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+launch_codex() {
+  codex_env
+  start_gateway
+  local args=(
+    -c 'model_provider="broke"'
+    -c "model_providers.broke={name=\"BrokeLLM\",base_url=\"$GATEWAY/v1\",env_key=\"BROKE_CODEX_API_KEY\",wire_api=\"responses\"}"
+  )
+  if has_model_arg "$@"; then
+    codex "${args[@]}" "$@"
+    return
+  fi
+  local model
+  model="$(get_slot_label sonnet)"
+  if [ -n "$model" ]; then
+    codex "${args[@]}" -m "$model" "$@"
+  else
+    codex "${args[@]}" "$@"
+  fi
+}
+
 # ── provider ─────────────────────────────────────────────────────────
 PROVIDERS=(claude codex gemini)
 
@@ -102,8 +151,7 @@ launch_provider() {
       start_gateway
       claude "$@" ;;
     codex)
-      load_env
-      codex "$@" ;;
+      launch_codex "$@" ;;
     gemini)
       load_env
       gemini "$@" ;;

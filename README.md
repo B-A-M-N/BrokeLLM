@@ -20,7 +20,7 @@ BrokeLLM puts a local LiteLLM gateway in front of multiple providers and lets yo
 - define client profiles with access limits
 - configure fallback chains between slots
 - inspect health, routing, and drift warnings
-- launch `claude`, `codex`, or `gemini` through the same wrapper
+- launch `claude` or `codex` through the wrapper, with optional provider switching for supported paths
 
 In practice, it gives you a local control plane for model routing without needing to hand-edit LiteLLM config every time you want to change backends.
 
@@ -64,7 +64,7 @@ LiteLLM itself supports far more providers; BrokeLLM is intentionally a smaller 
 High-level flow:
 
 ```text
-Claude/Codex/Gemini CLI
+Claude/Codex CLI
         |
         v
      broke
@@ -91,6 +91,51 @@ Commands like `doctor`, `route`, `explain`, and `validate` do not compute their 
 
 That design rule matters more than any single command. If those surfaces disagree, the control plane stops being trustworthy.
 
+## Compatibility Status
+
+- `claude`: verified against the local LiteLLM gateway
+- `codex`: verified against the local LiteLLM gateway through a custom Codex provider config
+- `gemini`: raw Gemini-format gateway calls work, but Gemini CLI is not currently reliable through BrokeLLM
+
+Codex compatibility works when BrokeLLM is configured as a custom Codex model provider using the OpenAI Responses wire format against the local LiteLLM gateway.
+
+On April 3, 2026, this live check succeeded:
+
+```bash
+env BROKE_DUMMY=dummy \
+  codex exec \
+  -c 'model_provider="broke"' \
+  -c 'model_providers.broke={name="BrokeLLM",base_url="http://localhost:4000/v1",env_key="BROKE_DUMMY",wire_api="responses"}' \
+  -m 'GitHub/GPT-4o-mini' --skip-git-repo-check --json \
+  "Respond with exactly OK and nothing else."
+```
+
+The previous `OPENAI_BASE_URL` env override approach was not reliable for Codex and is no longer the recommended path here.
+
+Gemini is a different case. On April 3, 2026, direct requests to BrokeLLM's Google-style endpoint succeeded:
+
+```bash
+curl -sS http://localhost:4000/v1beta/models/GitHub/GPT-4o-mini:generateContent \
+  -H 'x-goog-api-key: dummy' \
+  -H 'Content-Type: application/json' \
+  --data '{"contents":[{"parts":[{"text":"Say OK"}]}]}'
+```
+
+That returned a valid Gemini-format response through LiteLLM.
+
+The Gemini CLI itself was not reliable against the same gateway. Even with:
+
+- `GOOGLE_GEMINI_BASE_URL=http://localhost:4000`
+- `GEMINI_API_KEY_AUTH_MECHANISM=bearer`
+- `--model 'GitHub/GPT-4o-mini'`
+
+the CLI still internally routed requests to `Gemini/2.0-Flash` in this environment and failed because BrokeLLM does not expose that model group. In other words:
+
+- BrokeLLM's Gemini-compatible HTTP endpoint works
+- Gemini CLI's internal model routing does not currently make this a trustworthy end-to-end integration
+
+Until that changes upstream or a stable workaround is found, this repo should not claim Gemini CLI compatibility.
+
 ## Installation
 
 ### Requirements
@@ -99,7 +144,7 @@ That design rule matters more than any single command. If those surfaces disagre
 - `curl`
 - `lsof`
 - one or more provider API keys
-- the CLI you want to launch: `claude`, `codex`, or `gemini`
+- the CLI you want to launch: `claude` or `codex`
 
 ### Install
 

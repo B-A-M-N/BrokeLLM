@@ -148,6 +148,22 @@ class MappingTestCase(unittest.TestCase):
         self.assertIn("GEMINI_API_KEY", env_template)
         self.assertNotIn("GOOGLE_AI_STUDIO_API_KEY", broke_sh)
 
+    def test_codex_wrapper_uses_custom_provider_responses_path(self):
+        broke_sh = (REPO_ROOT / "bin" / "broke").read_text()
+        self.assertIn("PROVIDERS=(claude codex gemini)", broke_sh)
+        self.assertIn('export BROKE_CODEX_API_KEY="dummy"', broke_sh)
+        self.assertIn('model_provider="broke"', broke_sh)
+        self.assertIn('base_url=\\"$GATEWAY/v1\\"', broke_sh)
+        self.assertIn('wire_api=\\"responses\\"', broke_sh)
+        self.assertIn('env_key=\\"BROKE_CODEX_API_KEY\\"', broke_sh)
+
+    def test_readme_reports_verified_codex_path(self):
+        readme = (REPO_ROOT / "README.md").read_text()
+        self.assertIn("`codex`: verified against the local LiteLLM gateway", readme)
+        self.assertIn("model_provider=\"broke\"", readme)
+        self.assertIn("wire_api=\"responses\"", readme)
+        self.assertNotIn("`codex`: not currently supported through BrokeLLM", readme)
+
     def test_export_import_round_trip_preserves_teams_and_profiles(self):
         teams = {
             "work": {
