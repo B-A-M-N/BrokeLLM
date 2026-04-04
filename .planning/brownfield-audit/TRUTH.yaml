@@ -1,0 +1,487 @@
+version: 1
+generated_at: "2026-04-04"
+phase: 3
+artifact: TRUTH
+method: manual_phase_execution_fallback
+classification_scale:
+  - VALID
+  - CONDITIONAL
+  - INVALID
+notes:
+  - "These are provisional Phase 3 truth classifications."
+  - "Surfaces without decisive runtime or adversarial proof are intentionally downgraded to CONDITIONAL."
+  - "Later phases may tighten or overturn these judgments with deeper function tracing and kill tests."
+truth_surfaces:
+  - name: routing_truth
+    requirement_refs:
+      - TRUTH-01
+    source_of_truth:
+      primary:
+        - .mapping.json
+      normalization:
+        - bin/_mapping.py::_entry_identity
+        - bin/_mapping.py::_backend_catalog_entry
+        - bin/_mapping.py::_entry_pin_state
+    readers:
+      - bin/_mapping.py::cmd_route
+      - bin/_mapping.py::cmd_explain
+      - bin/_mapping.py::cmd_doctor
+      - bin/_mapping.py::cmd_validate
+      - bin/_mapping.py::cmd_config
+    writers:
+      - bin/_mapping.py::cmd_swap
+      - bin/_mapping.py::cmd_team_load
+      - bin/_mapping.py::cmd_snapshot_restore
+    drift_risks:
+      - "consumer commands bypassing shared normalization helpers"
+      - "mapping state changing without dependent config regeneration"
+    evidence:
+      code_references:
+        - ARCHITECTURE.md
+        - bin/_mapping.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 1: explain and route agreed on sonnet mapping"
+        - "Phase 3: `broke explain sonnet` and `broke route sonnet` both resolved to OR/Step-3.5"
+      claim_refs:
+        - ROUTE-001
+        - ROUTE-002
+        - OBS-002
+    notes:
+      - "Routing identity resolution appears centralized and consistent at sampled surfaces."
+      - "This judgment does not prove end-to-end execution alignment."
+    provisional_classification: VALID
+
+  - name: health_truth
+    requirement_refs:
+      - TRUTH-02
+    source_of_truth:
+      primary:
+        - LiteLLM /health endpoint
+      normalization:
+        - bin/_mapping.py::_fetch_health_index
+        - bin/_mapping.py::_entry_health_status
+    readers:
+      - bin/_mapping.py::cmd_doctor
+      - bin/_mapping.py::cmd_explain
+      - bin/_mapping.py::cmd_route
+    writers:
+      - "runtime-only, not persisted"
+    drift_risks:
+      - "different commands resolving health through different pathways"
+      - "gateway status and per-entry health disagreeing"
+    evidence:
+      code_references:
+        - ARCHITECTURE.md
+        - bin/_mapping.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 1: HEALTH-001 suspected divergence"
+        - "Phase 3: `broke doctor` reported gateway live and OR/Step-3.5 healthy"
+        - "Phase 3: `broke explain sonnet` and `broke route sonnet` reported `health: gateway not reachable`"
+    notes:
+      - "Current observed behavior shows conflicting health truth across control-plane surfaces."
+    provisional_classification: INVALID
+
+  - name: key_policy_truth
+    requirement_refs:
+      - TRUTH-03
+    source_of_truth:
+      primary:
+        - .rotation.json
+    readers:
+      - bin/_mapping.py::cmd_key_policy
+      - bin/_mapping.py::cmd_doctor
+      - bin/_proxy.py
+    writers:
+      - bin/_mapping.py::cmd_key_policy
+    drift_risks:
+      - "generation changes not reflected in new requests"
+      - "policy file and runtime behavior diverging"
+    evidence:
+      code_references:
+        - bin/_mapping.py
+        - bin/_proxy.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 3: `broke doctor` loaded key policy generation 2 and displayed provider policies"
+    notes:
+      - "Policy persistence and visibility are strong."
+      - "Concurrent policy-race proof remains deferred."
+    provisional_classification: CONDITIONAL
+
+  - name: key_state_truth
+    requirement_refs:
+      - TRUTH-03
+    source_of_truth:
+      primary:
+        - .key_state.json
+    readers:
+      - bin/_mapping.py::cmd_key_state
+      - bin/_mapping.py::cmd_doctor
+      - bin/_proxy.py
+    writers:
+      - bin/_mapping.py::cmd_key_state
+      - bin/_proxy.py
+    drift_risks:
+      - "runtime updates and manual overrides competing"
+      - "cooldown/auth_failed transitions not fully adversarially exercised"
+    evidence:
+      code_references:
+        - bin/_mapping.py
+        - bin/_proxy.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 3: `broke doctor` displayed healthy state for tracked keys"
+    notes:
+      - "State file, readers, and runtime display are aligned."
+    provisional_classification: VALID
+
+  - name: model_policy_truth
+    requirement_refs:
+      - TRUTH-04
+    source_of_truth:
+      primary:
+        - .model_policy.json
+    readers:
+      - bin/_mapping.py::cmd_model_policy
+      - bin/_mapping.py::cmd_doctor
+      - bin/_proxy.py
+    writers:
+      - bin/_mapping.py::cmd_model_policy
+    drift_risks:
+      - "generation changes not taking effect only on new requests"
+      - "policy order diverging from actual runtime selection"
+    evidence:
+      code_references:
+        - bin/_mapping.py
+        - bin/_proxy.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 3: `broke doctor` loaded model policy generation 2 for sonnet"
+    notes:
+      - "Visibility is solid; race/isolation proof is still partial."
+    provisional_classification: CONDITIONAL
+
+  - name: model_state_truth
+    requirement_refs:
+      - TRUTH-04
+    source_of_truth:
+      primary:
+        - .model_state.json
+    readers:
+      - bin/_mapping.py::cmd_model_state
+      - bin/_mapping.py::cmd_doctor
+      - bin/_proxy.py
+    writers:
+      - bin/_mapping.py::cmd_model_state
+      - bin/_proxy.py
+    drift_risks:
+      - "manual state and runtime state diverging"
+      - "incompatibility/cooldown statuses under-tested"
+    evidence:
+      code_references:
+        - bin/_mapping.py
+        - bin/_proxy.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 3: `broke doctor` displayed healthy states for active sampled models"
+    notes:
+      - "State persistence and display look coherent."
+    provisional_classification: VALID
+
+  - name: fallback_resolution_truth
+    requirement_refs:
+      - TRUTH-05
+    source_of_truth:
+      primary:
+        - .mapping.json::_lane_fallback_targets
+        - .mapping.json::_backend_fallbacks
+        - .mapping.json::_fallbacks
+      normalization:
+        - bin/_mapping.py::_effective_fallback_chain
+    readers:
+      - bin/_mapping.py::cmd_route
+      - bin/_mapping.py::cmd_explain
+      - bin/_mapping.py::cmd_validate
+      - bin/_mapping.py::cmd_fallback_policy
+    writers:
+      - bin/_mapping.py::cmd_fallback
+      - bin/_mapping.py::cmd_team_fallback
+      - bin/_mapping.py::cmd_team_load
+    drift_risks:
+      - "stored fallback forms disagreeing"
+      - "fallback chain display working while live failover is unproven"
+    evidence:
+      code_references:
+        - bin/_mapping.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 1: fallback chain displayed for sonnet"
+        - "Phase 3: explain/route showed direct-scoped fallback chain"
+      claim_refs:
+        - ROUTE-003
+    notes:
+      - "Static resolution path is observable."
+      - "Live failover under upstream failure remains unproven."
+    provisional_classification: CONDITIONAL
+
+  - name: harness_verdict_truth
+    requirement_refs:
+      - TRUTH-06
+    source_of_truth:
+      primary:
+        - .harness_state.json
+        - .runtime/harness/<run_id>/events.jsonl
+      normalization:
+        - bin/_mapping.py::_harness_verdict
+    readers:
+      - bin/_mapping.py::cmd_harness
+      - bin/_mapping.py::cmd_doctor
+    writers:
+      - bin/_mapping.py::_complete_harness_run
+      - bin/_mapping.py::cmd_harness evaluate
+    drift_risks:
+      - "summary state and append-only ledger disagreeing"
+      - "verdict categories not matching deterministic findings"
+    evidence:
+      code_references:
+        - bin/_mapping.py
+        - bin/_harness_common.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 1: authority.expansion_denied event confirmed"
+        - "Phase 3: `broke harness` and `broke doctor` both reported last verdict ACCEPT"
+    notes:
+      - "Harness summary surfaces appear coherent at current sample depth."
+    provisional_classification: VALID
+
+  - name: credential_isolation_truth
+    requirement_refs:
+      - TRUTH-07
+    source_of_truth:
+      primary:
+        - child-process env planning in bin/broke
+        - runtime token files and launch audit records
+    readers:
+      - launched clients
+      - proxy
+      - harness review lane
+    writers:
+      - bin/broke
+    drift_risks:
+      - "provider secrets leaking into broader process scope"
+      - "worker lane and provider-direct lanes collapsing"
+    evidence:
+      code_references:
+        - bin/broke
+        - bin/_mapping.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 1: provider_direct worker without --elevated was denied and logged"
+        - "Phase 3: `broke doctor` showed local token-based auth surfaces active"
+      claim_refs:
+        - SEC-003
+        - SEC-004
+        - HAR-003
+    notes:
+      - "Isolation design exists and some authority boundaries are enforced."
+      - "Direct adversarial env-leak proof is still deferred."
+    provisional_classification: CONDITIONAL
+
+  - name: sandbox_runtime_boundary_truth
+    requirement_refs:
+      - TRUTH-08
+    source_of_truth:
+      primary:
+        - .sandbox-profile
+        - bwrap launch path in bin/broke
+        - local-only socket bridge path
+    readers:
+      - bin/broke
+      - launched clients
+    writers:
+      - bin/broke::set_sandbox_profile
+    drift_risks:
+      - "claimed strict isolation stronger than actual runtime boundary"
+      - "client-specific compatibility exceptions weakening guarantees"
+    evidence:
+      code_references:
+        - bin/broke
+        - bin/_socket_bridge.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 1 and prior hardening work confirmed narrowed strict binds and Gemini strict-mode denial behavior in code/tests"
+        - "Phase 3 current sandbox profile is normal, so no fresh strict-mode probe was run"
+      claim_refs:
+        - SBOX-001
+        - SBOX-002
+        - SBOX-003
+    notes:
+      - "Implementation is materially stronger than earlier baseline."
+      - "No live escape or strict-runtime proof yet."
+    provisional_classification: CONDITIONAL
+
+  - name: execution_alignment_truth
+    requirement_refs:
+      - TRUTH-09
+    source_of_truth:
+      primary:
+        - .mapping.json
+        - .deployments.json
+        - config.json
+        - proxy forwarding behavior
+    readers:
+      - bin/_mapping.py::cmd_config
+      - bin/_proxy.py
+      - LiteLLM runtime
+    writers:
+      - bin/_mapping.py::cmd_config
+    drift_risks:
+      - "control-plane route choice and actual forwarded upstream target diverging"
+      - "config generation lagging behind mapping changes"
+    evidence:
+      code_references:
+        - bin/_mapping.py
+        - bin/_proxy.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 1: KT-07 partially feasible only; no live request interception"
+        - "Phase 3: route/explain agree on selected backend, but actual forwarded request target remains indirectly proven"
+    notes:
+      - "Execution chain is known and partially tested."
+      - "End-to-end alignment is not fully runtime-proven."
+    provisional_classification: CONDITIONAL
+
+  - name: launch_preflight_integrity_truth
+    requirement_refs:
+      - TRUTH-10
+    source_of_truth:
+      primary:
+        - bin/_mapping.py::_preflight_findings
+    readers:
+      - bin/_mapping.py::cmd_preflight
+      - bin/_mapping.py::cmd_doctor
+      - bin/broke launch path
+    writers:
+      - "derived at runtime from local env and files"
+    drift_risks:
+      - "high-risk problems only warning instead of failing"
+      - "preflight checks drifting from actual launch requirements"
+    evidence:
+      code_references:
+        - bin/_mapping.py
+        - bin/broke
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 3: `broke doctor` surfaced package drift, unexpected .pth files, and a harness shim integrity failure"
+      claim_refs:
+        - SEC-002
+    notes:
+      - "Preflight is active and catches real issues."
+      - "Current environment still demonstrates actionable failures/warnings."
+    provisional_classification: CONDITIONAL
+
+  - name: snapshot_restore_truth
+    requirement_refs:
+      - TRUTH-11
+    source_of_truth:
+      primary:
+        - .snapshots/
+        - .mapping.json snapshot payloads
+    readers:
+      - bin/_mapping.py::cmd_snapshot_list
+      - bin/_mapping.py::cmd_snapshot_restore
+    writers:
+      - bin/_mapping.py::cmd_snapshot_save
+    drift_risks:
+      - "user expectation of full-state snapshotting when only mapping is saved"
+      - "restore correctness limited by narrow snapshot scope"
+    evidence:
+      code_references:
+        - bin/_mapping.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 1: SNAPSHOT-001 identified mapping-only snapshot scope"
+      claim_refs:
+        - STATE-002
+    notes:
+      - "Snapshot/restore exists and is tested."
+      - "Scope is narrower than broader state-control language suggests."
+    provisional_classification: CONDITIONAL
+
+  - name: freeze_enforcement_truth
+    requirement_refs:
+      - TRUTH-12
+    source_of_truth:
+      primary:
+        - .freeze sentinel
+    readers:
+      - freeze-gated mutation commands in bin/broke and bin/_mapping.py
+    writers:
+      - bin/broke::freeze
+    drift_risks:
+      - "freeze claimed as broad state protection while only guarding a subset of mutations"
+    evidence:
+      code_references:
+        - bin/broke
+        - bin/_mapping.py
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 1: FROZEN-001 found only swap, team-load, profile-load, and snapshot-restore gated"
+      claim_refs:
+        - STATE-002
+    notes:
+      - "Current enforcement surface is materially narrower than the implied control-plane freeze concept."
+    provisional_classification: INVALID
+
+  - name: supply_chain_truth
+    requirement_refs:
+      - TRUTH-13
+    source_of_truth:
+      primary:
+        - requirements.txt
+        - requirements.lock
+        - vendor/wheels
+        - install.sh
+    readers:
+      - install.sh
+      - make lock
+      - make mirror-wheels
+      - preflight checks
+    writers:
+      - manual dependency updates
+      - lock refresh flows
+    drift_risks:
+      - "runtime environment drifting away from hash-locked intent"
+      - "wheel mirror existence implying stronger offline guarantees than actually maintained"
+    evidence:
+      code_references:
+        - requirements.txt
+        - requirements.lock
+        - install.sh
+      test_references:
+        - tests/test_mapping.py
+      runtime_observations:
+        - "Phase 3: `broke doctor` reported runtime package drift against the lockfile"
+      claim_refs:
+        - SUPPLY-001
+        - SUPPLY-002
+    notes:
+      - "The locked supply-chain mechanism exists."
+      - "Current environment is not fully aligned with the locked expectation."
+    provisional_classification: CONDITIONAL

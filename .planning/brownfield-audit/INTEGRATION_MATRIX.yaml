@@ -1,0 +1,386 @@
+version: 1
+generated_at: "2026-04-04"
+phase: 3
+artifact: INTEGRATION_MATRIX
+method: manual_phase_execution_fallback
+classification_scale:
+  - VALID
+  - CONDITIONAL
+  - INVALID
+integrations:
+  clients:
+    - name: claude_cli
+      class: client
+      classification: CONDITIONAL
+      declared_behavior: "Claude CLI launches against the local BrokeLLM/LiteLLM path."
+      implementation_locations:
+        - bin/broke
+        - bin/_mapping.py
+      truth_surface_refs:
+        - execution_alignment_truth
+        - credential_isolation_truth
+        - sandbox_runtime_boundary_truth
+      observed_behavior:
+        - "Client launch path and env shaping are implemented."
+        - "README claims verified compatibility."
+      failure_modes:
+        - "stale local session/auth state"
+        - "strict sandbox compatibility constraints"
+        - "unproven full end-to-end runtime path in current phase"
+      evidence:
+        - README.md
+        - HUMAN_ONLY/FOR_BEGINNERS.md
+        - tests/test_mapping.py
+
+    - name: codex_cli
+      class: client
+      classification: VALID
+      declared_behavior: "Codex CLI uses a custom BrokeLLM provider over Responses API wire format."
+      implementation_locations:
+        - bin/broke
+        - README.md
+      truth_surface_refs:
+        - execution_alignment_truth
+        - credential_isolation_truth
+      observed_behavior:
+        - "README documents a verified Codex path."
+        - "Tests cover Codex-specific provider configuration behavior."
+        - "Current provider selection is codex."
+      failure_modes:
+        - "upstream provider availability and billing"
+      evidence:
+        - README.md
+        - tests/test_mapping.py
+        - "Phase 3: `broke status` provider=codex"
+
+    - name: gemini_cli
+      class: client
+      classification: INVALID
+      declared_behavior: "Gemini CLI path is experimental and not yet reliable through BrokeLLM."
+      implementation_locations:
+        - bin/broke
+        - README.md
+      truth_surface_refs:
+        - execution_alignment_truth
+        - sandbox_runtime_boundary_truth
+      observed_behavior:
+        - "Docs explicitly disclaim reliable CLI compatibility."
+        - "Strict mode denies Gemini entirely."
+      failure_modes:
+        - "CLI routes internally to unsupported model ids"
+        - "strict sandbox incompatibility"
+      evidence:
+        - README.md
+        - tests/test_mapping.py
+
+    - name: gemini_endpoint
+      class: client
+      classification: CONDITIONAL
+      declared_behavior: "Google-compatible Gemini HTTP endpoint works even though Gemini CLI remains unreliable."
+      implementation_locations:
+        - bin/_proxy.py
+        - bin/_mapping.py
+        - README.md
+      truth_surface_refs:
+        - execution_alignment_truth
+      observed_behavior:
+        - "Docs claim raw endpoint compatibility."
+        - "No fresh live endpoint probe was run in this phase."
+      failure_modes:
+        - "provider/model mismatch"
+        - "auth/routing drift"
+      evidence:
+        - README.md
+        - tests/test_mapping.py
+
+  providers:
+    - name: openrouter
+      class: provider
+      classification: CONDITIONAL
+      declared_behavior: "Recommended provider with active routed models and multi-key support."
+      implementation_locations:
+        - bin/_mapping.py
+        - bin/_proxy.py
+      truth_surface_refs:
+        - routing_truth
+        - key_policy_truth
+        - execution_alignment_truth
+      observed_behavior:
+        - "Current active sonnet and other lanes route through OpenRouter entries."
+        - "Doctor reported active OpenRouter upstreams healthy."
+      failure_modes:
+        - "rate limits"
+        - "floating alias drift"
+      evidence:
+        - "Phase 3: `broke doctor`"
+        - tests/test_mapping.py
+
+    - name: groq
+      class: provider
+      classification: CONDITIONAL
+      declared_behavior: "Fast inference provider with multi-key support."
+      implementation_locations:
+        - bin/_mapping.py
+        - bin/_proxy.py
+      truth_surface_refs:
+        - key_policy_truth
+        - execution_alignment_truth
+      observed_behavior:
+        - "Groq/Llama-4-Scout displayed healthy."
+        - "Groq/Compound showed rate limiting in doctor."
+      failure_modes:
+        - "rate limiting"
+        - "model-specific availability"
+      evidence:
+        - "Phase 3: `broke doctor`"
+
+    - name: cerebras
+      class: provider
+      classification: CONDITIONAL
+      declared_behavior: "High-throughput provider available in backend catalog and fallback chains."
+      implementation_locations:
+        - bin/_mapping.py
+        - bin/_proxy.py
+      truth_surface_refs:
+        - fallback_resolution_truth
+        - execution_alignment_truth
+      observed_behavior:
+        - "Fallback chains include Cerebras backends."
+        - "Doctor returned payment required for sampled Cerebras models."
+      failure_modes:
+        - "billing/payment gating"
+        - "provider availability"
+      evidence:
+        - "Phase 3: `broke doctor`"
+
+    - name: github_models
+      class: provider
+      classification: CONDITIONAL
+      declared_behavior: "GitHub Models are exposed through openai provider wiring using GITHUB_TOKEN."
+      implementation_locations:
+        - bin/_mapping.py
+      truth_surface_refs:
+        - execution_alignment_truth
+      observed_behavior:
+        - "Catalog entries exist."
+        - "No fresh live probe was run in this phase."
+      failure_modes:
+        - "token availability"
+        - "api_base mismatch"
+      evidence:
+        - bin/_mapping.py
+        - README.md
+
+    - name: gemini
+      class: provider
+      classification: CONDITIONAL
+      declared_behavior: "Gemini provider endpoint is supported in the backend catalog."
+      implementation_locations:
+        - bin/_mapping.py
+        - bin/_proxy.py
+      truth_surface_refs:
+        - execution_alignment_truth
+        - sandbox_runtime_boundary_truth
+      observed_behavior:
+        - "Catalog entries exist."
+        - "CLI path is intentionally qualified as unreliable."
+      failure_modes:
+        - "client/provider mismatch"
+        - "strict sandbox denial for Gemini CLI"
+      evidence:
+        - README.md
+        - bin/_mapping.py
+
+    - name: hugging_face
+      class: provider
+      classification: CONDITIONAL
+      declared_behavior: "Hugging Face free-tier integration exists in supported provider set."
+      implementation_locations:
+        - bin/_mapping.py
+      truth_surface_refs:
+        - execution_alignment_truth
+      observed_behavior:
+        - "Provider is recognized in validation/provider lists."
+        - "No fresh live request path was exercised."
+      failure_modes:
+        - "credential absence"
+        - "thin runtime proof"
+      evidence:
+        - README.md
+        - bin/_mapping.py
+
+  internal:
+    - name: wrapper_to_config_generation
+      class: internal
+      classification: VALID
+      declared_behavior: "Wrapper regenerates LiteLLM config from current mapping state."
+      implementation_locations:
+        - bin/broke
+        - bin/_mapping.py::cmd_config
+      truth_surface_refs:
+        - routing_truth
+        - execution_alignment_truth
+      observed_behavior:
+        - "System surface map identifies cmd_config as config writer."
+      failure_modes:
+        - "stale config if config generation skipped after mutation"
+      evidence:
+        - .planning/brownfield-audit/_SYSTEM_SURFACE_MAP.md
+        - bin/_mapping.py
+
+    - name: wrapper_to_proxy
+      class: internal
+      classification: VALID
+      declared_behavior: "Wrapper starts and manages the BrokeLLM proxy."
+      implementation_locations:
+        - bin/broke
+        - bin/_proxy.py
+      truth_surface_refs:
+        - execution_alignment_truth
+      observed_behavior:
+        - "Phase 3: `broke status` reported gateway running and proxy live."
+      failure_modes:
+        - "port collision"
+        - "launch failure"
+      evidence:
+        - "Phase 3: `broke status`"
+        - .planning/brownfield-audit/_SYSTEM_SURFACE_MAP.md
+
+    - name: proxy_to_litellm
+      class: internal
+      classification: CONDITIONAL
+      declared_behavior: "Proxy forwards authenticated routed requests to LiteLLM using internal master auth."
+      implementation_locations:
+        - bin/_proxy.py
+        - bin/broke
+      truth_surface_refs:
+        - execution_alignment_truth
+        - credential_isolation_truth
+      observed_behavior:
+        - "Doctor shows readiness and upstream model health checks."
+        - "Full intercepted forwarded request proof is not present in this phase."
+      failure_modes:
+        - "forwarding mismatch"
+        - "auth drift"
+        - "upstream failures"
+      evidence:
+        - bin/_proxy.py
+        - "Phase 3: `broke doctor`"
+
+    - name: harness_launcher_to_shimmed_tools
+      class: internal
+      classification: CONDITIONAL
+      declared_behavior: "Harness run prepends shimmed tools and appends an event ledger."
+      implementation_locations:
+        - bin/broke
+        - bin/_mapping.py
+        - bin/_harness_shim.py
+        - bin/_harness_common.py
+      truth_surface_refs:
+        - harness_verdict_truth
+        - credential_isolation_truth
+      observed_behavior:
+        - "Harness runtime and caches are visible."
+        - "Phase 1 confirmed authority denial event."
+      failure_modes:
+        - "shim integrity drift"
+        - "partial mediation"
+      evidence:
+        - "Phase 1: KT-08-001"
+        - "Phase 3: `broke harness`"
+
+    - name: preflight_to_launch_gating
+      class: internal
+      classification: CONDITIONAL
+      declared_behavior: "Preflight blocks or warns on launch-integrity issues."
+      implementation_locations:
+        - bin/_mapping.py
+        - bin/broke
+      truth_surface_refs:
+        - launch_preflight_integrity_truth
+      observed_behavior:
+        - "Current doctor output shows preflight finding both warnings and failures."
+      failure_modes:
+        - "warning-only handling for serious drift"
+        - "stale runtime artifacts"
+      evidence:
+        - "Phase 3: `broke doctor`"
+
+    - name: sandbox_profiles_to_client_launch
+      class: internal
+      classification: CONDITIONAL
+      declared_behavior: "Sandbox profile selection affects launched client runtime boundaries."
+      implementation_locations:
+        - bin/broke
+        - bin/_socket_bridge.py
+      truth_surface_refs:
+        - sandbox_runtime_boundary_truth
+      observed_behavior:
+        - "Current status is normal sandbox."
+        - "Strict behavior is documented and partially test-backed, not freshly exercised."
+      failure_modes:
+        - "profile-specific compatibility loss"
+        - "incomplete isolation proof"
+      evidence:
+        - "Phase 3: `broke status` sandbox=normal"
+        - tests/test_mapping.py
+
+    - name: policy_state_to_runtime_requests
+      class: internal
+      classification: CONDITIONAL
+      declared_behavior: "Key/model policies and states influence new request selection."
+      implementation_locations:
+        - bin/_mapping.py
+        - bin/_proxy.py
+      truth_surface_refs:
+        - key_policy_truth
+        - key_state_truth
+        - model_policy_truth
+        - model_state_truth
+      observed_behavior:
+        - "Doctor surfaces both policy generations and current state."
+        - "Concurrent race behavior remains unproven."
+      failure_modes:
+        - "generation-isolation drift"
+        - "manual state override mismatch"
+      evidence:
+        - "Phase 3: `broke doctor`"
+        - tests/test_mapping.py
+
+    - name: teams_profiles_to_route_access_state
+      class: internal
+      classification: VALID
+      declared_behavior: "Teams and profiles persist reusable routing and access presets."
+      implementation_locations:
+        - bin/_mapping.py
+      truth_surface_refs:
+        - routing_truth
+        - snapshot_restore_truth
+      observed_behavior:
+        - "State/control surfaces are explicit and tested."
+      failure_modes:
+        - "referential drift if a profile points to a deleted team"
+      evidence:
+        - .planning/brownfield-audit/_SYSTEM_SURFACE_MAP.md
+        - tests/test_mapping.py
+
+    - name: snapshots_and_freeze_to_mutation_commands
+      class: internal
+      classification: INVALID
+      declared_behavior: "Snapshots and freeze protect and restore mutation state."
+      implementation_locations:
+        - bin/_mapping.py
+        - bin/broke
+      truth_surface_refs:
+        - snapshot_restore_truth
+        - freeze_enforcement_truth
+      observed_behavior:
+        - "Snapshot scope is mapping-only."
+        - "Freeze gates only a subset of mutation commands."
+      failure_modes:
+        - "user assumes broader state protection than exists"
+        - "mutation continues under freeze on non-gated commands"
+      evidence:
+        - "Phase 1: SNAPSHOT-001"
+        - "Phase 1: FROZEN-001"
+        - .planning/brownfield-audit/_SYSTEM_SURFACE_MAP.md
