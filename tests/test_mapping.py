@@ -841,6 +841,10 @@ class MappingTestCase(unittest.TestCase):
         self.assertIn("file locking", readme)
         self.assertIn("rate-limits repeated invalid auth attempts", readme)
         self.assertIn("client-specific state directories", readme)
+        self.assertIn("## System Structure", readme)
+        self.assertIn("governed execution system", readme)
+        self.assertIn("Evidence Binding", readme)
+        self.assertIn("a simple harness", readme)
 
     def test_harness_spec_docs_exist(self):
         core = (REPO_ROOT / "docs" / "harness" / "CORE.md").read_text()

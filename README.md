@@ -38,6 +38,32 @@ BrokeLLM puts a **local control plane** in front of multiple providers. Clients 
 
 ---
 
+## System Structure
+
+BrokeLLM is a **governed execution system**, not just a proxy, router, or harness in isolation.
+
+Its runtime is composed of multiple cooperating layers:
+
+1. **Execution**: runs requests and tool-facing flows against the selected model/provider path
+2. **Enforcement**: applies boundary checks, policy rules, and runtime constraints
+3. **Adjudication**: separates worker, verifier, and adversary review paths
+4. **Verdict System**: resolves outcomes through formal verdict algebra
+5. **Evidence Binding**: anchors decisions to logs, artifacts, state, and execution traces
+6. **Orchestration**: controls retries, escalation, lifecycle flow, and route transitions
+
+The diagrams below are views into those layers. No single diagram is the whole system.
+
+BrokeLLM is not merely:
+
+- a proxy
+- a router
+- a simple harness
+- a wrapper around model calls
+
+Those are mechanisms inside the runtime, not the runtime's full identity.
+
+---
+
 ## Quickstart
 
 ```bash
