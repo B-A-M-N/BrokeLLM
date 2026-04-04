@@ -1,0 +1,949 @@
+version: 1
+generated_at: "2026-04-04"
+phase: 2
+artifact: CLAIMS
+method: manual_phase_execution_fallback
+inputs:
+  docs:
+    - README.md
+    - ARCHITECTURE.md
+    - HUMAN_ONLY/FOR_BEGINNERS.md
+    - docs/harness/CORE.md
+    - docs/harness/CODE.md
+    - docs/harness/GSD.md
+    - .planning/PROJECT.md
+    - .planning/REQUIREMENTS.md
+    - .planning/ROADMAP.md
+  code:
+    - bin/broke
+    - bin/_mapping.py
+    - bin/_proxy.py
+    - install.sh
+  tests:
+    - tests/test_mapping.py
+  prior_artifacts:
+    - .planning/brownfield-audit/_SYSTEM_SURFACE_MAP.md
+notes:
+  - "This is a normalized Phase 2 claim registry, not final truth adjudication."
+  - "Implemented/verified/adversarially_verified values are initial evidence-backed classifications for downstream reuse."
+  - "Phase 2 intentionally stops short of final VALID/CONDITIONAL/INVALID domain judgments."
+claims:
+  - claim_id: ID-001
+    domain: identity
+    statement: "BrokeLLM is a local control plane for model-slot routing, fallbacks, and provider switching across CLI coding tools."
+    source:
+      path: README.md
+      section: "title + solution"
+    declared_scope: system_identity
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/broke
+      - bin/_mapping.py
+      - bin/_proxy.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke
+      - broke start
+      - broke route
+      - broke explain
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+    notes:
+      - "Backed by control-plane code, proxy, and command surfaces."
+
+  - claim_id: ID-002
+    domain: identity
+    statement: "BrokeLLM is a governed execution system composed of execution, enforcement, adjudication, verdict, evidence, and orchestration layers."
+    source:
+      path: README.md
+      section: "System Structure"
+    declared_scope: system_identity
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/_proxy.py
+      - bin/_harness_shim.py
+      - bin/_harness_common.py
+      - bin/broke
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke harness
+      - broke harness run
+      - broke harness evaluate
+      - broke doctor
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+    notes:
+      - "Implementation surfaces exist across harness, proxy, and launch logic."
+      - "Full system-level runtime proof is deferred to later truth-surface phases."
+
+  - claim_id: CLIENT-001
+    domain: client_support
+    statement: "Claude CLI works against the local LiteLLM gateway."
+    source:
+      path: README.md
+      section: "Client Support"
+    declared_scope: client_integration
+    expected_proof_type:
+      - runtime_verification
+      - code_trace
+    implementation_locations:
+      - bin/broke
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke
+      - broke claude
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+    notes:
+      - "Docs claim verified; wrapper and env-shaping paths exist."
+      - "No live credential-backed end-to-end Phase 2 proof."
+
+  - claim_id: CLIENT-002
+    domain: client_support
+    statement: "Codex CLI works through a custom provider configuration via Responses API wire format."
+    source:
+      path: README.md
+      section: "Client Support + Codex"
+    declared_scope: client_integration
+    expected_proof_type:
+      - runtime_verification
+      - code_trace
+    implementation_locations:
+      - bin/broke
+      - README.md
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke codex
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+    notes:
+      - "README documents verified path and tests cover Codex-specific config behavior."
+
+  - claim_id: CLIENT-003
+    domain: client_support
+    statement: "Gemini CLI compatibility is experimental; the raw endpoint works but the CLI path is not yet reliable."
+    source:
+      path: README.md
+      section: "Client Support + Gemini"
+    declared_scope: client_integration
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/broke
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke gemini
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+    notes:
+      - "Claim is intentionally qualified; docs explicitly avoid overclaiming full CLI reliability."
+
+  - claim_id: ROUTE-001
+    domain: routing
+    statement: "Clients keep speaking in abstract slots while BrokeLLM controls which provider/model answers."
+    source:
+      path: README.md
+      section: "The Solution"
+    declared_scope: routing
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/_proxy.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke list
+      - broke route
+      - broke explain
+      - /v1/chat/completions
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: partial
+    notes:
+      - "Phase 1 safe probes confirmed route/explain alignment at sampled paths."
+
+  - claim_id: ROUTE-002
+    domain: routing
+    statement: "Interactive route switching with `broke swap` is supported."
+    source:
+      path: README.md
+      section: "Routing Control"
+    declared_scope: routing
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+    implementation_locations:
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke swap
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+    notes:
+      - "Swap persistence and pinned-metadata preservation are tested."
+
+  - claim_id: ROUTE-003
+    domain: routing
+    statement: "Fallback chain support exists per slot."
+    source:
+      path: README.md
+      section: "Routing Control"
+    declared_scope: routing
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke fallback
+      - broke fallback policy
+      - broke team fallback
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+    notes:
+      - "Fallback display and validation surfaces are present."
+      - "Live failover behavior is deferred to later kill tests."
+
+  - claim_id: OBS-001
+    domain: observability
+    statement: "BrokeLLM exposes health, validation, explain, route, metrics, and probe commands."
+    source:
+      path: README.md
+      section: "Observability & Validation"
+    declared_scope: observability
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke doctor
+      - broke validate
+      - broke explain
+      - broke route
+      - broke metrics
+      - broke probe
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+    notes:
+      - "Not every command has dedicated direct tests yet."
+
+  - claim_id: OBS-002
+    domain: observability
+    statement: "Control-plane surfaces consume a single canonical truth boundary rather than maintaining split-brain state."
+    source:
+      path: README.md
+      section: "Observability & Validation + Design Principle"
+    declared_scope: truth_boundary
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+      - runtime_verification
+    implementation_locations:
+      - ARCHITECTURE.md
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke doctor
+      - broke route
+      - broke explain
+      - broke validate
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: partial
+    notes:
+      - "ARCHITECTURE.md names `_entry_identity` and related helpers as the truth boundary."
+      - "Phase 1 also surfaced a suspected health-path discrepancy for later adjudication."
+
+  - claim_id: EXEC-001
+    domain: execution_layer
+    statement: "BrokeLLM runs a runtime proxy on localhost:4000 with LiteLLM behind it on an internal port."
+    source:
+      path: README.md
+      section: "Execution + Local Security"
+    declared_scope: execution_layer
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/broke
+      - bin/_proxy.py
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke start
+      - broke status
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+    notes:
+      - "Port binding and wrapper startup logic are explicit in the launch path."
+
+  - claim_id: EXEC-002
+    domain: execution_layer
+    statement: "BrokeLLM provides a unified local entrypoint for Claude and Codex."
+    source:
+      path: README.md
+      section: "Execution"
+    declared_scope: execution_layer
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/broke
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke
+      - broke claude
+      - broke codex
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+
+  - claim_id: KEY-001
+    domain: live_key_orchestration
+    statement: "BrokeLLM supports multi-key pools per provider using numbered API key environment variables."
+    source:
+      path: README.md
+      section: "Live Key Orchestration"
+    declared_scope: key_orchestration
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/_proxy.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke key-policy
+      - broke key-state
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+
+  - claim_id: KEY-002
+    domain: live_key_orchestration
+    statement: "Key rotation policy changes apply to new requests without restarting the client session."
+    source:
+      path: README.md
+      section: "Live Key Orchestration"
+    declared_scope: key_orchestration
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/_proxy.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke key-policy
+      - /v1/chat/completions
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+    notes:
+      - "Generation tracking is explicit in state/policy code."
+      - "Concurrent race proof is deferred."
+
+  - claim_id: KEY-003
+    domain: live_key_orchestration
+    statement: "Per-key health state includes healthy, cooldown, blocked, and auth_failed."
+    source:
+      path: README.md
+      section: "Live Key Orchestration"
+    declared_scope: key_orchestration
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/_proxy.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke key-state
+      - broke doctor
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+
+  - claim_id: MODEL-001
+    domain: live_model_orchestration
+    statement: "Per-lane live model policy exists for sonnet, opus, haiku, default, and subagent."
+    source:
+      path: README.md
+      section: "Live Model Orchestration"
+    declared_scope: model_orchestration
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/_proxy.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke model-policy
+      - broke model-state
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+
+  - claim_id: MODEL-002
+    domain: live_model_orchestration
+    statement: "New requests can switch models without restarting the client session, while in-flight requests stay on the model/key they already started with."
+    source:
+      path: README.md
+      section: "Live Model Orchestration"
+    declared_scope: model_orchestration
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/_proxy.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke model-policy
+      - /v1/chat/completions
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+    notes:
+      - "Generation isolation exists in the design; concurrent request proof remains deferred."
+
+  - claim_id: HAR-001
+    domain: harness_mode
+    statement: "Harness mode is separate from BROKE_MODE=cli|router and supports off, throughput, balanced, and high_assurance profiles."
+    source:
+      path: README.md
+      section: "Harness Mode"
+    declared_scope: harness_mode
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/broke
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke harness
+      - broke harness set
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+
+  - claim_id: HAR-002
+    domain: harness_mode
+    statement: "Harness mode resolves work through verdict algebra with accept, retry, escalate, and block outcomes."
+    source:
+      path: README.md
+      section: "Harness Mode"
+    declared_scope: harness_verdicts
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+    implementation_locations:
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke harness evaluate
+      - broke doctor
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+
+  - claim_id: HAR-003
+    domain: harness_mode
+    statement: "Harness run mediates CLI-agent execution with per-run ledgering and shimmed command observation."
+    source:
+      path: README.md
+      section: "Harness Mode"
+    declared_scope: harness_runtime
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/broke
+      - bin/_mapping.py
+      - bin/_harness_shim.py
+      - bin/_harness_common.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke harness run
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: partial
+    notes:
+      - "Phase 1 confirmed provider-direct worker denial without elevation and ledger event append."
+
+  - claim_id: SEC-001
+    domain: security_model
+    statement: "Proxy and LiteLLM bind only to localhost."
+    source:
+      path: README.md
+      section: "Local Security"
+    declared_scope: network_boundary
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/broke
+      - bin/_proxy.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke start
+      - broke status
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+
+  - claim_id: SEC-002
+    domain: security_model
+    statement: "Launch preflight enforces lockfile drift checks, PYTHONPATH hygiene, runtime file permissions, and harness shim integrity."
+    source:
+      path: README.md
+      section: "Local Security"
+    declared_scope: preflight_integrity
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+      - runtime_verification
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/broke
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke preflight
+      - broke doctor
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: partial
+
+  - claim_id: SEC-003
+    domain: security_model
+    statement: "Provider secrets are injected only into specific child processes; BrokeLLM does not globally export .env."
+    source:
+      path: README.md
+      section: "Local Security"
+    declared_scope: credential_isolation
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+      - adversarial_verification
+    implementation_locations:
+      - bin/broke
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke
+      - broke harness run
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+    notes:
+      - "Later phases should probe subprocess env visibility directly."
+
+  - claim_id: SEC-004
+    domain: security_model
+    statement: "Client requests require a local BrokeLLM token except local health endpoints."
+    source:
+      path: README.md
+      section: "Local Security"
+    declared_scope: auth_enforcement
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+      - runtime_verification
+    implementation_locations:
+      - bin/_proxy.py
+      - bin/broke
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - /health
+      - /v1/chat/completions
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+
+  - claim_id: SEC-005
+    domain: security_model
+    statement: "The proxy fails closed on unknown routed model ids and rate-limits repeated invalid auth attempts."
+    source:
+      path: README.md
+      section: "Local Security"
+    declared_scope: auth_enforcement
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+    implementation_locations:
+      - bin/_proxy.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - /v1/chat/completions
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+
+  - claim_id: SUPPLY-001
+    domain: supply_chain
+    statement: "Dependency input is pinned in requirements.txt with a full transitive hash lock in requirements.lock and installs use pip --require-hashes."
+    source:
+      path: README.md
+      section: "Locked Supply Chain"
+    declared_scope: supply_chain
+    expected_proof_type:
+      - code_trace
+      - file_evidence
+    implementation_locations:
+      - requirements.txt
+      - requirements.lock
+      - install.sh
+      - Makefile
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - ./install.sh
+      - make lock
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+
+  - claim_id: SUPPLY-002
+    domain: supply_chain
+    statement: "An optional local wheel mirror exists for offline or repeatable installs."
+    source:
+      path: README.md
+      section: "Locked Supply Chain"
+    declared_scope: supply_chain
+    expected_proof_type:
+      - file_evidence
+      - code_trace
+    implementation_locations:
+      - vendor/wheels
+      - Makefile
+      - install.sh
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - make mirror-wheels
+      - ./install.sh --use-wheel-mirror
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+
+  - claim_id: SBOX-001
+    domain: sandbox_profiles
+    statement: "BrokeLLM provides normal, hardened, and strict sandbox profiles for launched clients."
+    source:
+      path: README.md
+      section: "Sandbox Profiles"
+    declared_scope: sandbox_profiles
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/broke
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke sandbox
+      - broke sandbox set
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+
+  - claim_id: SBOX-002
+    domain: sandbox_profiles
+    statement: "Strict mode uses bwrap with explicit filesystem/environment boundaries and blocks Gemini because Gemini still needs direct network access."
+    source:
+      path: README.md
+      section: "Sandbox Profiles"
+    declared_scope: sandbox_profiles
+    expected_proof_type:
+      - code_trace
+      - runtime_verification
+    implementation_locations:
+      - bin/broke
+      - bin/_socket_bridge.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke sandbox set strict
+      - broke gemini
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+
+  - claim_id: SBOX-003
+    domain: sandbox_profiles
+    statement: "Strict-mode home binds are narrowed to client-specific state directories and only BrokeLLM bin helpers are mounted."
+    source:
+      path: README.md
+      section: "Sandbox Profiles"
+    declared_scope: sandbox_profiles
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+    implementation_locations:
+      - bin/broke
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke sandbox set strict
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+
+  - claim_id: STATE-001
+    domain: state_controls
+    statement: "Team and profile presets provide reusable configurations and access policies."
+    source:
+      path: README.md
+      section: "Routing Control + Teams"
+    declared_scope: state_controls
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+    implementation_locations:
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke team save
+      - broke team load
+      - broke profile new
+      - broke profile load
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+
+  - claim_id: STATE-002
+    domain: state_controls
+    statement: "BrokeLLM supports snapshots and freeze controls to preserve and protect known-good state."
+    source:
+      path: README.md
+      section: "Commands + beginner manual"
+    declared_scope: state_controls
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+      - runtime_verification
+    implementation_locations:
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke snapshot save
+      - broke snapshot restore
+      - broke freeze on
+      - broke freeze off
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+    notes:
+      - "Phase 1 found freeze gating and snapshot scope gaps that later phases must adjudicate."
+
+  - claim_id: INSTALL-001
+    domain: installation_bootstrap
+    statement: "Install is a simple one-command bootstrap that links broke, initializes env, and prepares default mappings."
+    source:
+      path: README.md
+      section: "Execution + Quickstart + beginner setup"
+    declared_scope: installation_bootstrap
+    expected_proof_type:
+      - code_trace
+      - test_evidence
+    implementation_locations:
+      - install.sh
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - ./install.sh
+    status:
+      declared: true
+      implemented: true
+      verified: true
+      adversarially_verified: false
+
+  - claim_id: COMPAT-001
+    domain: compatibility_integration
+    statement: "BrokeLLM intentionally supports a smaller, opinionated provider set on top of LiteLLM."
+    source:
+      path: README.md
+      section: "Supported Providers"
+    declared_scope: provider_integration
+    expected_proof_type:
+      - code_trace
+      - file_evidence
+    implementation_locations:
+      - bin/_mapping.py
+      - README.md
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke provider
+      - broke provider list
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+
+  - claim_id: COMPAT-002
+    domain: compatibility_integration
+    statement: "Supported provider families include OpenRouter, Groq, Cerebras, GitHub Models, Gemini, and Hugging Face."
+    source:
+      path: README.md
+      section: "Supported Providers"
+    declared_scope: provider_integration
+    expected_proof_type:
+      - code_trace
+      - file_evidence
+    implementation_locations:
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke models
+      - broke provider list
+    status:
+      declared: true
+      implemented: true
+      verified: partial
+      adversarially_verified: false
+
+  - claim_id: DOC-001
+    domain: doctrine
+    statement: "Harness Core is general-purpose, Code is a doctrine family, and GSD is an overlay family."
+    source:
+      path: "docs/harness/CORE.md + docs/harness/CODE.md + docs/harness/GSD.md"
+      section: "doctrine resolution"
+    declared_scope: harness_docs
+    expected_proof_type:
+      - file_evidence
+      - code_trace
+    implementation_locations:
+      - docs/harness/CORE.md
+      - docs/harness/CODE.md
+      - docs/harness/GSD.md
+      - README.md
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke harness
+    status:
+      declared: true
+      implemented: partial
+      verified: partial
+      adversarially_verified: false
+    notes:
+      - "This is primarily a documentation/contract claim at Phase 2."

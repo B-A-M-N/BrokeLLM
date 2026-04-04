@@ -1,0 +1,394 @@
+version: 1
+generated_at: "2026-04-04"
+phase: 2
+artifact: FEATURE_INVENTORY
+method: manual_phase_execution_fallback
+inventory_policy:
+  top_level_buckets_are_fixed_from_phase_2_roadmap: true
+  scope: "skeleton_first"
+  deeper_function_family_tracing_deferred_to_phase_4: true
+feature_families:
+  routing:
+    declared_behavior:
+      - "Map abstract client slots to provider/model backends."
+      - "Allow interactive route switching."
+      - "Support per-slot fallback chains."
+    claim_refs:
+      - ID-001
+      - ROUTE-001
+      - ROUTE-002
+      - ROUTE-003
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/_proxy.py
+      - bin/broke
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke list
+      - broke models
+      - broke swap
+      - broke route
+      - broke explain
+      - broke fallback
+      - broke fallback policy
+      - /v1/chat/completions
+    dependencies:
+      - execution_layer
+      - live_model_orchestration
+      - live_key_orchestration
+      - observability
+      - state_controls
+    verification_status:
+      implemented: true
+      tested: true
+      runtime_probed: partial
+      adversarially_probed: partial
+    notes:
+      - "Phase 1 safe probes confirmed route/explain agreement on sampled paths."
+      - "Live fallback failover remains deferred."
+
+  observability:
+    declared_behavior:
+      - "Expose doctor, validate, route, explain, metrics, and probe surfaces."
+      - "Report one canonical truth about route identity, health, and drift."
+    claim_refs:
+      - OBS-001
+      - OBS-002
+    implementation_locations:
+      - bin/_mapping.py
+      - ARCHITECTURE.md
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke doctor
+      - broke validate
+      - broke explain
+      - broke route
+      - broke metrics
+      - broke probe
+    dependencies:
+      - routing
+      - live_key_orchestration
+      - live_model_orchestration
+      - state_controls
+    verification_status:
+      implemented: true
+      tested: true
+      runtime_probed: partial
+      adversarially_probed: partial
+    notes:
+      - "Health-path disagreement surfaced in Phase 1 as suspected drift for later adjudication."
+
+  execution_layer:
+    declared_behavior:
+      - "Expose a local runtime proxy on :4000 with LiteLLM behind it."
+      - "Provide stable local execution paths for supported clients."
+    claim_refs:
+      - EXEC-001
+      - EXEC-002
+      - ID-001
+    implementation_locations:
+      - bin/broke
+      - bin/_proxy.py
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke start
+      - broke stop
+      - broke restart
+      - broke status
+      - /health
+      - /v1/chat/completions
+    dependencies:
+      - routing
+      - security_model
+      - installation_bootstrap
+    verification_status:
+      implemented: true
+      tested: partial
+      runtime_probed: partial
+      adversarially_probed: false
+
+  live_key_orchestration:
+    declared_behavior:
+      - "Manage per-provider key pools and key health state."
+      - "Allow live key policy updates for new requests."
+      - "Track reason-coded key rotation outcomes."
+    claim_refs:
+      - KEY-001
+      - KEY-002
+      - KEY-003
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/_proxy.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke key-policy
+      - broke key-state
+      - broke doctor
+      - /v1/chat/completions
+    dependencies:
+      - routing
+      - security_model
+      - state_controls
+    verification_status:
+      implemented: true
+      tested: true
+      runtime_probed: partial
+      adversarially_probed: false
+
+  live_model_orchestration:
+    declared_behavior:
+      - "Manage per-slot/lane model policy and model health state."
+      - "Apply generation-tracked model policy changes to new requests only."
+    claim_refs:
+      - MODEL-001
+      - MODEL-002
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/_proxy.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke model-policy
+      - broke model-state
+      - broke doctor
+      - /v1/chat/completions
+    dependencies:
+      - routing
+      - execution_layer
+      - state_controls
+    verification_status:
+      implemented: true
+      tested: true
+      runtime_probed: partial
+      adversarially_probed: false
+
+  harness_mode:
+    declared_behavior:
+      - "Provide orthogonal harness profiles and verdict algebra."
+      - "Mediate CLI-agent execution through run registration, env planning, shims, and ledgering."
+      - "Support worker/verifier/adversary review structure."
+    claim_refs:
+      - HAR-001
+      - HAR-002
+      - HAR-003
+      - ID-002
+      - DOC-001
+    implementation_locations:
+      - bin/_mapping.py
+      - bin/broke
+      - bin/_harness_common.py
+      - bin/_harness_shim.py
+      - docs/harness/CORE.md
+      - docs/harness/CODE.md
+      - docs/harness/GSD.md
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke harness
+      - broke harness set
+      - broke harness evaluate
+      - broke harness run
+      - broke doctor
+    dependencies:
+      - security_model
+      - sandbox_profiles
+      - state_controls
+      - execution_layer
+    verification_status:
+      implemented: true
+      tested: true
+      runtime_probed: partial
+      adversarially_probed: partial
+    notes:
+      - "Provider-direct worker denial without elevation was confirmed in Phase 1."
+
+  security_model:
+    declared_behavior:
+      - "Use local-only bind surfaces, scoped tokens, sanitized envs, and restricted runtime files."
+      - "Fail closed on unknown routed model ids and repeated invalid auth attempts."
+      - "Keep provider secrets scoped to the child processes that need them."
+    claim_refs:
+      - SEC-001
+      - SEC-002
+      - SEC-003
+      - SEC-004
+      - SEC-005
+    implementation_locations:
+      - bin/broke
+      - bin/_mapping.py
+      - bin/_proxy.py
+      - bin/_fs_common.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke preflight
+      - broke doctor
+      - broke start
+      - /health
+      - /v1/chat/completions
+    dependencies:
+      - execution_layer
+      - sandbox_profiles
+      - harness_mode
+      - state_controls
+    verification_status:
+      implemented: true
+      tested: true
+      runtime_probed: partial
+      adversarially_probed: false
+    notes:
+      - "Credential-isolation adversarial probing is explicitly deferred in requirements v2."
+
+  sandbox_profiles:
+    declared_behavior:
+      - "Offer normal, hardened, and strict client sandbox modes."
+      - "Use bwrap in strict mode with a narrowed filesystem/environment surface."
+      - "Bridge local-only proxy access for supported strict-mode clients."
+    claim_refs:
+      - SBOX-001
+      - SBOX-002
+      - SBOX-003
+    implementation_locations:
+      - bin/broke
+      - bin/_socket_bridge.py
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke sandbox
+      - broke sandbox set normal
+      - broke sandbox set hardened
+      - broke sandbox set strict
+    dependencies:
+      - security_model
+      - execution_layer
+      - harness_mode
+    verification_status:
+      implemented: true
+      tested: true
+      runtime_probed: partial
+      adversarially_probed: false
+
+  supply_chain:
+    declared_behavior:
+      - "Pin top-level dependencies and require transitive hashes."
+      - "Support a local wheel mirror for repeatable installs."
+    claim_refs:
+      - SUPPLY-001
+      - SUPPLY-002
+    implementation_locations:
+      - requirements.txt
+      - requirements.lock
+      - install.sh
+      - vendor/wheels
+      - Makefile
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - ./install.sh
+      - make lock
+      - make mirror-wheels
+    dependencies:
+      - installation_bootstrap
+    verification_status:
+      implemented: true
+      tested: partial
+      runtime_probed: false
+      adversarially_probed: false
+
+  state_controls:
+    declared_behavior:
+      - "Persist mapping, team, profile, harness, and runtime policy/state surfaces."
+      - "Support snapshots and freeze controls."
+    claim_refs:
+      - STATE-001
+      - STATE-002
+      - ARCH-STATE-implicit
+    implementation_locations:
+      - bin/_mapping.py
+      - ARCHITECTURE.md
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke team save
+      - broke team load
+      - broke profile new
+      - broke profile load
+      - broke snapshot save
+      - broke snapshot restore
+      - broke freeze
+    dependencies:
+      - routing
+      - live_key_orchestration
+      - live_model_orchestration
+      - harness_mode
+      - security_model
+    verification_status:
+      implemented: true
+      tested: true
+      runtime_probed: partial
+      adversarially_probed: false
+    notes:
+      - "Phase 1 surfaced snapshot/freeze scope concerns that remain open for later drift classification."
+
+  installation_bootstrap:
+    declared_behavior:
+      - "Provide one-command install/bootstrap for the local system."
+      - "Initialize env and default mapping files."
+    claim_refs:
+      - INSTALL-001
+    implementation_locations:
+      - install.sh
+      - bin/_mapping.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - ./install.sh
+    dependencies:
+      - supply_chain
+      - execution_layer
+      - state_controls
+    verification_status:
+      implemented: true
+      tested: true
+      runtime_probed: false
+      adversarially_probed: false
+
+  compatibility_integration_claims:
+    declared_behavior:
+      - "Support a documented set of clients and providers with explicit qualification where paths are experimental."
+      - "Expose provider and client-specific integration guidance in docs and commands."
+    claim_refs:
+      - CLIENT-001
+      - CLIENT-002
+      - CLIENT-003
+      - COMPAT-001
+      - COMPAT-002
+    implementation_locations:
+      - README.md
+      - bin/broke
+      - bin/_mapping.py
+      - bin/_proxy.py
+    test_locations:
+      - tests/test_mapping.py
+    runtime_entrypoints:
+      - broke provider
+      - broke provider list
+      - broke claude
+      - broke codex
+      - broke gemini
+    dependencies:
+      - execution_layer
+      - routing
+      - security_model
+      - sandbox_profiles
+    verification_status:
+      implemented: true
+      tested: partial
+      runtime_probed: partial
+      adversarially_probed: false
