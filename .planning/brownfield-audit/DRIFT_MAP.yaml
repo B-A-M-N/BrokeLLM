@@ -1,0 +1,300 @@
+version: 1
+generated_at: "2026-04-04"
+phase: 6
+artifact: DRIFT_MAP
+method: manual_phase_execution_fallback
+notes:
+  - "Phase 6 synthesizes drift from existing claims, truth, integration, function, and invariant artifacts."
+  - "Confirmed drift and proof-gap drift are separated explicitly."
+failure_taxonomy:
+  - BOUNDARY_VIOLATION
+  - STATE_DRIFT
+  - AUTHORITY_LEAK
+  - OBSERVABILITY_MISMATCH
+  - EXECUTION_DIVERGENCE
+  - SECURITY_ISOLATION_FAILURE
+  - SANDBOX_ENFORCEMENT_FAILURE
+  - SUPPLY_CHAIN_GAP
+  - INSTALL_BOOTSTRAP_GAP
+  - INTEGRATION_OVERCLAIM
+  - TEST_COVERAGE_GAP
+  - PERSISTENCE_TRUTH_GAP
+  - DOC_TRUTH_GAP
+drift_classes:
+  - id: DRIFT-01
+    name: readme_vs_code_drift
+    status: confirmed_drift
+    issues:
+      - id: D-01-01
+        title: freeze semantics are broader in user-facing language than in enforced mutation coverage
+        declared_surface:
+          - README.md
+          - state-control documentation and command UX
+        observed_surface:
+          - .planning/brownfield-audit/TRUTH.yaml::freeze_enforcement_truth
+          - .planning/brownfield-audit/FUNCTION_INVENTORY.md::Team, Profile, Snapshot, And Freeze Controls
+        severity: high
+        exploitability: medium
+        user_impact: users can believe freeze protects the control plane broadly when many mutation paths remain available
+        evidence_refs:
+          - .planning/brownfield-audit/TRUTH.yaml
+          - .planning/brownfield-audit/FUNCTION_INVENTORY.md
+        failure_classes:
+          - DOC_TRUTH_GAP
+          - BOUNDARY_VIOLATION
+      - id: D-01-02
+        title: snapshot/restore semantics read broader than the actual mapping-only snapshot scope
+        declared_surface:
+          - README.md
+          - state-controls language
+        observed_surface:
+          - .planning/brownfield-audit/TRUTH.yaml::snapshot_restore_truth
+          - .planning/brownfield-audit/FUNCTION_INVENTORY.md::Team, Profile, Snapshot, And Freeze Controls
+        severity: medium
+        exploitability: low
+        user_impact: operators may overestimate restore coverage after policy/team/profile mutations
+        evidence_refs:
+          - .planning/brownfield-audit/TRUTH.yaml
+          - .planning/brownfield-audit/FUNCTION_INVENTORY.md
+        failure_classes:
+          - DOC_TRUTH_GAP
+          - PERSISTENCE_TRUTH_GAP
+
+  - id: DRIFT-02
+    name: command_surface_vs_implementation_drift
+    status: confirmed_drift
+    issues:
+      - id: D-02-01
+        title: freeze command surface implies a broader guard boundary than the implementation actually enforces
+        declared_surface:
+          - broke freeze command semantics
+        observed_surface:
+          - gated mutation set documented in Phase 1 and Phase 4
+        severity: high
+        exploitability: medium
+        user_impact: command semantics suggest stronger safety posture than the implementation delivers
+        evidence_refs:
+          - .planning/brownfield-audit/TRUTH.yaml
+          - .planning/brownfield-audit/FUNCTION_INVENTORY.md
+          - .planning/brownfield-audit/INVARIANTS.md
+        failure_classes:
+          - BOUNDARY_VIOLATION
+          - DOC_TRUTH_GAP
+      - id: D-02-02
+        title: preflight detects meaningful drift but still leaves some serious conditions at warning level
+        declared_surface:
+          - validation and launch-integrity surfaces
+        observed_surface:
+          - package drift and unexpected .pth files surfaced as findings rather than broad launch denial
+        severity: medium
+        exploitability: low
+        user_impact: operators can continue on a degraded baseline that looks more trustworthy than it is
+        evidence_refs:
+          - .planning/brownfield-audit/TRUTH.yaml::launch_preflight_integrity_truth
+          - .planning/brownfield-audit/FUNCTION_INVENTORY.md::Validation And Launch Preflight
+        failure_classes:
+          - DOC_TRUTH_GAP
+          - INSTALL_BOOTSTRAP_GAP
+
+  - id: DRIFT-03
+    name: test_suite_vs_actual_behavior_drift
+    status: confirmed_drift
+    issues:
+      - id: D-03-01
+        title: high-risk confidence claims sit on mostly nominal and mock-backed tests rather than adversarial or live runtime proof
+        declared_surface:
+          - test-backed confidence implied by passing repo test suite
+        observed_surface:
+          - Phase 4 test strategy review and kill-test executability summary
+        severity: high
+        exploitability: medium
+        user_impact: readers can over-trust green tests on behaviors still missing execution-grade proof
+        evidence_refs:
+          - .planning/brownfield-audit/FUNCTION_INVENTORY.md
+          - .planning/brownfield-audit/KILL_TESTS.md
+        failure_classes:
+          - TEST_COVERAGE_GAP
+          - EXECUTION_DIVERGENCE
+
+  - id: DRIFT-04
+    name: route_explain_doctor_drift
+    status: confirmed_drift
+    issues:
+      - id: D-04-01
+        title: doctor health output disagrees with route and explain for the same live sonnet selection
+        declared_surface:
+          - route/explain/doctor as a shared truth boundary
+        observed_surface:
+          - doctor reported gateway live and healthy backend
+          - route/explain reported gateway not reachable
+        severity: high
+        exploitability: medium
+        user_impact: the operator cannot trust which health view should govern action
+        evidence_refs:
+          - .planning/brownfield-audit/TRUTH.yaml::health_truth
+          - .planning/brownfield-audit/FUNCTION_INVENTORY.md::Health Normalization And Doctor Aggregation
+        failure_classes:
+          - OBSERVABILITY_MISMATCH
+          - STATE_DRIFT
+
+  - id: DRIFT-05
+    name: policy_truth_vs_request_behavior_drift
+    status: proof_gap_with_material_impact
+    issues:
+      - id: D-05-01
+        title: key and model policy generation isolation is designed but not runtime-proven under concurrent request mutation
+        declared_surface:
+          - live key/model policy orchestration
+        observed_surface:
+          - persistence and generation counters exist
+          - concurrent request isolation remains deferred to kill testing
+        severity: medium
+        exploitability: medium
+        user_impact: live policy mutation may behave differently than operators expect under concurrency
+        evidence_refs:
+          - .planning/brownfield-audit/TRUTH.yaml::key_policy_truth
+          - .planning/brownfield-audit/TRUTH.yaml::model_policy_truth
+          - .planning/brownfield-audit/INVARIANTS.md
+          - .planning/brownfield-audit/KILL_TESTS.md::KT-02
+        failure_classes:
+          - TEST_COVERAGE_GAP
+          - EXECUTION_DIVERGENCE
+      - id: D-05-02
+        title: request-time policy adoption is only indirectly proven through state display, not direct concurrent request observation
+        declared_surface:
+          - request behavior follows latest accepted generation
+        observed_surface:
+          - state and doctor surfaces show generations
+          - request-level proof remains partial
+        severity: medium
+        exploitability: low
+        user_impact: policy tooling may appear stronger than its runtime proof depth
+        evidence_refs:
+          - .planning/brownfield-audit/TRUTH.yaml
+          - .planning/brownfield-audit/FUNCTION_INVENTORY.md::Policy And State Persistence
+        failure_classes:
+          - TEST_COVERAGE_GAP
+          - STATE_DRIFT
+
+  - id: DRIFT-06
+    name: harness_doctrine_vs_enforcement_drift
+    status: proof_gap_with_material_impact
+    issues:
+      - id: D-06-01
+        title: harness authority expansion denial is proven, but full verdict semantics remain only partially runtime-proven
+        declared_surface:
+          - harness verdict algebra and real enforcement semantics
+        observed_surface:
+          - authority.expansion_denied path observed
+          - broad BLOCK/RETRY/ESCALATE enforcement reality checks remain deferred
+        severity: high
+        exploitability: medium
+        user_impact: users may assume verdict classes are all equally hard when only part of that boundary is directly proven
+        evidence_refs:
+          - .planning/brownfield-audit/TRUTH.yaml::harness_verdict_truth
+          - .planning/brownfield-audit/INVARIANTS.md::INV-04.2
+          - .planning/brownfield-audit/KILL_TESTS.md::KT-13
+        failure_classes:
+          - TEST_COVERAGE_GAP
+          - BOUNDARY_VIOLATION
+
+  - id: DRIFT-07
+    name: sandbox_claim_vs_actual_isolation_drift
+    status: proof_gap_with_material_impact
+    issues:
+      - id: D-07-01
+        title: strict sandbox design has been hardened, but no live escape-resistance proof exists in the current audit
+        declared_surface:
+          - strict sandbox isolation claims
+        observed_surface:
+          - hardened bind narrowing exists
+          - no live strict-mode escape probe has been executed
+        severity: high
+        exploitability: medium
+        user_impact: strict mode may be interpreted as stronger than its currently demonstrated proof boundary
+        evidence_refs:
+          - .planning/brownfield-audit/TRUTH.yaml::sandbox_runtime_boundary_truth
+          - .planning/brownfield-audit/KILL_TESTS.md::KT-11
+        failure_classes:
+          - TEST_COVERAGE_GAP
+          - SANDBOX_ENFORCEMENT_FAILURE
+      - id: D-07-02
+        title: current runtime evidence was gathered under normal sandbox, not strict sandbox, so strong isolation claims remain partially displaced from observation
+        declared_surface:
+          - overall sandbox/security model
+        observed_surface:
+          - Phase 3 runtime state reported normal sandbox
+        severity: medium
+        exploitability: low
+        user_impact: readers can overgeneralize strict guarantees from non-strict runtime observations
+        evidence_refs:
+          - .planning/brownfield-audit/INTEGRATION_MATRIX.yaml
+          - .planning/brownfield-audit/TRUTH.yaml::sandbox_runtime_boundary_truth
+        failure_classes:
+          - DOC_TRUTH_GAP
+          - SANDBOX_ENFORCEMENT_FAILURE
+
+  - id: DRIFT-08
+    name: install_docs_vs_reality_drift
+    status: confirmed_drift
+    issues:
+      - id: D-08-01
+        title: hash-locked install intent is contradicted by observed runtime package drift and unexpected site customization
+        declared_surface:
+          - locked reproducible install and trusted runtime baseline
+        observed_surface:
+          - doctor reported runtime package drift against lockfile
+          - doctor reported unexpected .pth files
+        severity: medium
+        exploitability: medium
+        user_impact: install/bootstrap confidence is lower than the docs and lockfile posture imply
+        evidence_refs:
+          - .planning/brownfield-audit/TRUTH.yaml::supply_chain_truth
+          - .planning/brownfield-audit/TRUTH.yaml::launch_preflight_integrity_truth
+        failure_classes:
+          - SUPPLY_CHAIN_GAP
+          - INSTALL_BOOTSTRAP_GAP
+
+  - id: DRIFT-09
+    name: client_compatibility_claim_vs_real_path_drift
+    status: mixed_confirmed_and_proof_gap
+    issues:
+      - id: D-09-01
+        title: client compatibility is materially uneven, with only some client paths strongly proven and others explicitly conditional or invalid
+        declared_surface:
+          - client compatibility/support story
+        observed_surface:
+          - codex_cli valid
+          - claude_cli conditional
+          - gemini_cli invalid
+          - gemini_endpoint conditional
+        severity: medium
+        exploitability: low
+        user_impact: users can overread broad compatibility language as uniform support
+        evidence_refs:
+          - .planning/brownfield-audit/INTEGRATION_MATRIX.yaml
+          - README.md
+        failure_classes:
+          - INTEGRATION_OVERCLAIM
+          - DOC_TRUTH_GAP
+
+  - id: DRIFT-10
+    name: provider_support_claim_vs_actual_maintained_integration_drift
+    status: mixed_confirmed_and_proof_gap
+    issues:
+      - id: D-10-01
+        title: provider catalog breadth exceeds fresh runtime proof depth for many supported providers
+        declared_surface:
+          - provider support matrix and maintained integration story
+        observed_surface:
+          - several providers are only conditionally observed
+          - some sampled providers show billing/rate-limit failure modes rather than strong maintained-path proof
+        severity: medium
+        exploitability: low
+        user_impact: operators may interpret catalog presence as maintained, well-proven runtime support
+        evidence_refs:
+          - .planning/brownfield-audit/INTEGRATION_MATRIX.yaml
+          - .planning/brownfield-audit/TRUTH.yaml::execution_alignment_truth
+        failure_classes:
+          - INTEGRATION_OVERCLAIM
+          - TEST_COVERAGE_GAP

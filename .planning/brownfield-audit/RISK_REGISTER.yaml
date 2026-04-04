@@ -1,0 +1,242 @@
+version: 1
+generated_at: "2026-04-04"
+phase: 6
+artifact: RISK_REGISTER
+method: manual_phase_execution_fallback
+severity_scale:
+  - critical
+  - high
+  - medium
+  - low
+exploitability_scale:
+  - high
+  - medium
+  - low
+confidence_scale:
+  - high
+  - medium
+  - low
+risks:
+  - id: RISK-001
+    title: health truth split across doctor versus route/explain
+    source_drift_refs:
+      - DRIFT-04
+    severity: high
+    exploitability: medium
+    user_impact: operators can make the wrong routing or debugging decision because the health truth boundary is internally inconsistent
+    affected_truth_surfaces:
+      - health_truth
+    implicated_invariants:
+      - INV-02.1
+      - INV-02.2
+    failure_classes:
+      - OBSERVABILITY_MISMATCH
+      - STATE_DRIFT
+    evidence_refs:
+      - .planning/brownfield-audit/TRUTH.yaml::health_truth
+      - .planning/brownfield-audit/FUNCTION_INVENTORY.md::Health Normalization And Doctor Aggregation
+    current_confidence: high
+    recommended_next_phase_handling: final adjudication should keep health truth INVALID unless conflicting runtime evidence is resolved
+
+  - id: RISK-002
+    title: freeze control overclaims the real mutation boundary
+    source_drift_refs:
+      - DRIFT-01
+      - DRIFT-02
+    severity: high
+    exploitability: medium
+    user_impact: users can assume the control plane is frozen while meaningful mutation surfaces remain open
+    affected_truth_surfaces:
+      - freeze_enforcement_truth
+    implicated_invariants:
+      - INV-08.1
+    failure_classes:
+      - BOUNDARY_VIOLATION
+      - DOC_TRUTH_GAP
+    evidence_refs:
+      - .planning/brownfield-audit/TRUTH.yaml::freeze_enforcement_truth
+      - .planning/brownfield-audit/FUNCTION_INVENTORY.md::Team, Profile, Snapshot, And Freeze Controls
+    current_confidence: high
+    recommended_next_phase_handling: preserve INVALID adjudication and place freeze remediation in the authority-critical tranche
+
+  - id: RISK-003
+    title: snapshot restore covers less state than operators can reasonably infer
+    source_drift_refs:
+      - DRIFT-01
+    severity: medium
+    exploitability: low
+    user_impact: restore operations can leave policy/profile/team state behind while appearing complete
+    affected_truth_surfaces:
+      - snapshot_restore_truth
+    implicated_invariants:
+      - INV-08.2
+    failure_classes:
+      - PERSISTENCE_TRUTH_GAP
+      - DOC_TRUTH_GAP
+    evidence_refs:
+      - .planning/brownfield-audit/TRUTH.yaml::snapshot_restore_truth
+      - .planning/brownfield-audit/FUNCTION_INVENTORY.md::Team, Profile, Snapshot, And Freeze Controls
+    current_confidence: high
+    recommended_next_phase_handling: treat as truth-critical but below freeze and health splits
+
+  - id: RISK-004
+    title: execution alignment remains only partially runtime-proven
+    source_drift_refs:
+      - DRIFT-03
+      - DRIFT-05
+      - DRIFT-10
+    severity: high
+    exploitability: medium
+    user_impact: route/explain may appear authoritative even if actual forwarded execution diverges under edge conditions
+    affected_truth_surfaces:
+      - execution_alignment_truth
+      - routing_truth
+    implicated_invariants:
+      - INV-01.1
+      - INV-02.1
+    failure_classes:
+      - EXECUTION_DIVERGENCE
+      - TEST_COVERAGE_GAP
+    evidence_refs:
+      - .planning/brownfield-audit/TRUTH.yaml::execution_alignment_truth
+      - .planning/brownfield-audit/KILL_TESTS.md::KT-07
+    current_confidence: medium
+    recommended_next_phase_handling: keep execution alignment CONDITIONAL unless stronger end-to-end evidence is added
+
+  - id: RISK-005
+    title: live policy mutation behavior is not fully proven under concurrent request load
+    source_drift_refs:
+      - DRIFT-05
+    severity: medium
+    exploitability: medium
+    user_impact: key/model policy updates may not isolate in-flight and new requests the way operators expect
+    affected_truth_surfaces:
+      - key_policy_truth
+      - model_policy_truth
+    implicated_invariants:
+      - INV-03.1
+      - INV-03.2
+    failure_classes:
+      - EXECUTION_DIVERGENCE
+      - STATE_DRIFT
+      - TEST_COVERAGE_GAP
+    evidence_refs:
+      - .planning/brownfield-audit/TRUTH.yaml::key_policy_truth
+      - .planning/brownfield-audit/TRUTH.yaml::model_policy_truth
+      - .planning/brownfield-audit/KILL_TESTS.md::KT-02
+    current_confidence: medium
+    recommended_next_phase_handling: keep policy truth provisional and tie remediation to runtime guard or concurrency test coverage
+
+  - id: RISK-006
+    title: harness verdict semantics are stronger in doctrine than in directly observed enforcement proof
+    source_drift_refs:
+      - DRIFT-06
+    severity: high
+    exploitability: medium
+    user_impact: users can trust retry/block/escalate semantics beyond what has actually been demonstrated
+    affected_truth_surfaces:
+      - harness_verdict_truth
+    implicated_invariants:
+      - INV-04.2
+    failure_classes:
+      - BOUNDARY_VIOLATION
+      - TEST_COVERAGE_GAP
+    evidence_refs:
+      - .planning/brownfield-audit/INVARIANTS.md::INV-04.2
+      - .planning/brownfield-audit/KILL_TESTS.md::KT-13
+    current_confidence: medium
+    recommended_next_phase_handling: final adjudication should remain conservative until non-advisory verdict effects are proven more broadly
+
+  - id: RISK-007
+    title: credential isolation is designed well but not adversarially proven against env-leak paths
+    source_drift_refs:
+      - DRIFT-06
+      - DRIFT-07
+    severity: high
+    exploitability: medium
+    user_impact: provider credentials or role lanes could leak more broadly than intended without direct probe coverage
+    affected_truth_surfaces:
+      - credential_isolation_truth
+    implicated_invariants:
+      - INV-04.1
+      - INV-05.1
+    failure_classes:
+      - AUTHORITY_LEAK
+      - SECURITY_ISOLATION_FAILURE
+      - TEST_COVERAGE_GAP
+    evidence_refs:
+      - .planning/brownfield-audit/TRUTH.yaml::credential_isolation_truth
+      - .planning/brownfield-audit/KILL_TESTS.md::KT-03
+      - .planning/brownfield-audit/KILL_TESTS.md::KT-04
+      - .planning/brownfield-audit/KILL_TESTS.md::KT-08
+    current_confidence: medium
+    recommended_next_phase_handling: keep credential isolation CONDITIONAL and prioritize direct adversarial probe evidence in runtime follow-up
+
+  - id: RISK-008
+    title: strict sandbox claims exceed current live proof depth
+    source_drift_refs:
+      - DRIFT-07
+    severity: high
+    exploitability: medium
+    user_impact: strict mode may be relied on as a hardened boundary without escape-resistance proof
+    affected_truth_surfaces:
+      - sandbox_runtime_boundary_truth
+    implicated_invariants:
+      - INV-06.1
+      - INV-06.2
+    failure_classes:
+      - SANDBOX_ENFORCEMENT_FAILURE
+      - TEST_COVERAGE_GAP
+    evidence_refs:
+      - .planning/brownfield-audit/TRUTH.yaml::sandbox_runtime_boundary_truth
+      - .planning/brownfield-audit/KILL_TESTS.md::KT-11
+    current_confidence: medium
+    recommended_next_phase_handling: preserve CONDITIONAL classification and elevate remediation if strict mode is presented as a hard boundary
+
+  - id: RISK-009
+    title: runtime environment has drifted away from the hash-locked install baseline
+    source_drift_refs:
+      - DRIFT-08
+    severity: medium
+    exploitability: medium
+    user_impact: reproducibility and supportability are weaker than the lockfile/install posture implies
+    affected_truth_surfaces:
+      - supply_chain_truth
+      - launch_preflight_integrity_truth
+    implicated_invariants:
+      - INV-07.1
+      - INV-07.2
+      - INV-09.1
+    failure_classes:
+      - SUPPLY_CHAIN_GAP
+      - INSTALL_BOOTSTRAP_GAP
+    evidence_refs:
+      - .planning/brownfield-audit/TRUTH.yaml::supply_chain_truth
+      - .planning/brownfield-audit/TRUTH.yaml::launch_preflight_integrity_truth
+    current_confidence: high
+    recommended_next_phase_handling: keep supply-chain truth CONDITIONAL and put remediation in runtime-critical/install-critical ordering
+
+  - id: RISK-010
+    title: client and provider support breadth exceeds uniform proof depth
+    source_drift_refs:
+      - DRIFT-09
+      - DRIFT-10
+    severity: medium
+    exploitability: low
+    user_impact: users may assume broad client/provider support is equally maintained when the proof depth is uneven
+    affected_truth_surfaces:
+      - execution_alignment_truth
+      - client_integrations
+      - provider_integrations
+    implicated_invariants:
+      - INV-01.1
+      - INV-05.2
+    failure_classes:
+      - INTEGRATION_OVERCLAIM
+      - DOC_TRUTH_GAP
+      - TEST_COVERAGE_GAP
+    evidence_refs:
+      - .planning/brownfield-audit/INTEGRATION_MATRIX.yaml
+      - README.md
+    current_confidence: high
+    recommended_next_phase_handling: split final truth by integration family instead of letting broad support language mask uneven reality
