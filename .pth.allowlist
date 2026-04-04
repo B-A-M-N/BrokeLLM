@@ -1,0 +1,14 @@
+# Known-safe .pth patterns for BrokeLLM launch preflight.
+# Add entries only when you intentionally trust them in the active Python runtime.
+
+distutils-precedence.pth
+coloredlogs.pth
+pytest-cov.pth
+init_cov_core.pth
+__editable__.*.pth
+*.nspkg.pth
+_ecosystem_substrate.pth
+_essence.pth
+_nanobot_ai.pth
+_recallrelay.pth
+a1_coverage.pth

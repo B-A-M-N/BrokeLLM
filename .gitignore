@@ -10,7 +10,27 @@ config.json
 .profiles.json
 .provider
 .freeze
+.sandbox-profile
 .snapshots/
+.broke_client_token
+.broke_internal_token
+.deployments.json
+.rotation.json
+.key_state.json
+.model_policy.json
+.model_state.json
+.rotation.log
+.launch_audit.log
+.runtime/
+.harness.json
+.harness_state.json
+.harness_prompt_contracts.json
+.harness_prefix_cache.json
+.harness_evidence_cache.json
+.harness_review_cache.json
+.harness_runs.json
+.harness_active_run.json
+*.lock
 
 # Logs
 *.log
@@ -47,6 +67,8 @@ dist/
 broke-config.json
 *.tmp
 test_litellm.json
+vendor/wheels/*
+!vendor/wheels/.gitkeep
 
 # Editor and OS noise
 .DS_Store

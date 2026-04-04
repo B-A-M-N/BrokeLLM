@@ -295,6 +295,28 @@ This checks the live gateway and upstream route health.
 | `validate` passes, `doctor` fails | Gateway startup, credentials, or upstream availability issue |
 | `validate` fails | Fix your static config first before anything else |
 
+### Important first-run note
+
+Terminal AI clients are often a little unstable on first setup. That does **not** automatically mean BrokeLLM is broken.
+
+You may see:
+
+- login or session warnings
+- stale cached auth state
+- transport or websocket errors
+- messages that look scarier than the real problem
+
+If that happens:
+
+1. Run `broke doctor` first.
+2. If `broke doctor` looks healthy, the problem is often the client CLI, not the gateway.
+3. If Claude CLI is acting strange on first run, logging out and logging back in is a real fix.
+4. Trust the control-plane checks more than the client CLI's mood.
+
+This matters because a client can have stale local session state even when the local BrokeLLM gateway is working correctly.
+
+BrokeLLM also tries to reduce this class of problem by sanitizing conflicting client environment variables before it launches Claude, Codex, or Gemini. That lowers the odds of old base URLs, old auth modes, or stale provider settings leaking into the current session.
+
 ---
 
 ## Step 5: Start the gateway
@@ -303,7 +325,7 @@ This checks the live gateway and upstream route health.
 broke start
 ```
 
-This starts LiteLLM on port `4000` using the generated config. Confirm status with:
+This starts the BrokeLLM local gateway on port `4000` and the internal LiteLLM layer behind it. Confirm status with:
 
 ```bash
 broke status

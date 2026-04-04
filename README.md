@@ -3,6 +3,8 @@
 **Local control plane for model-slot routing, fallbacks, and provider switching across CLI coding tools.**  
 *Keep your client speaking in slots. Control what actually answers.*
 
+![BrokeLLM control plane infographic](./docs/assets/brokellm-control-plane-infographic.png)
+
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-brightgreen.svg)](https://www.python.org/)
 [![LiteLLM](https://img.shields.io/badge/powered%20by-LiteLLM-orange.svg)](https://github.com/BerriAI/litellm)
@@ -30,18 +32,7 @@ Most CLI coding tools assume stable access to expensive frontier models.
 
 BrokeLLM puts a **local control plane** in front of multiple providers. Clients keep speaking in abstract slots — `sonnet`, `opus`, `haiku`, `default`, `subagent` — while you control which provider and model actually answers.
 
-```
-Claude/Codex CLI
-       │
-       ▼
-    broke              ← control plane: routing, health, drift, fallback
-       │
-       ▼
- LiteLLM gateway       ← execution layer: enforces routing decisions
-       │
-       ▼
- selected backend      ← OpenRouter, Groq, Cerebras, GitHub Models, Gemini, HF
-```
+![BrokeLLM live operations](./docs/assets/brokellm-live-operations.png)
 
 **One stable local interface. Backends become swappable.**
 
@@ -76,20 +67,7 @@ broke list
 
 BrokeLLM is built around three ideas:
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                                                          │
-│  SLOT          What the client asks for                  │
-│                sonnet, opus, haiku, default, subagent    │
-│                                                          │
-│  CONTROL PLANE Owns routing, fallback, health, drift,    │
-│                and access-policy truth for those slots   │
-│                                                          │
-│  EXECUTION     LiteLLM enforces routing decisions        │
-│  LAYER         against real upstream provider endpoints  │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
-```
+![BrokeLLM single truth boundary](./docs/assets/brokellm-single-truth-boundary.png)
 
 The point: **clients keep speaking in slots. You control what actually answers.**
 
@@ -113,9 +91,73 @@ The point: **clients keep speaking in slots. You control what actually answers.*
 
 ### ⚡ Execution
 
-- LiteLLM-backed gateway on `http://localhost:4000`
+- BrokeLLM runtime proxy on `http://localhost:4000`
+- LiteLLM execution layer behind the proxy on an internal port
 - Unified local entrypoint for `claude` and `codex`
 - Simple one-command install
+
+### 🔑 Live Key Orchestration
+
+- Multi-key pools per provider using `*_API_KEY`, `*_API_KEY_2`, `*_API_KEY_3`
+- Live key rotation policy for new requests without restarting the client session
+- Per-key health state: `healthy`, `cooldown`, `blocked`, `auth_failed`
+- Atomic policy/state writes with generation tracking
+- Reason-coded rotation logs for `429`, `401/403`, timeout, and manual disable
+- Applies to both Claude and Codex, because both route through the same BrokeLLM proxy on `:4000`
+
+### 🧠 Live Model Orchestration
+
+- Per-lane live model policy for `sonnet`, `opus`, `haiku`, `default`, and `subagent`
+- New requests can switch models without restarting the client session
+- Per-model health state: `healthy`, `cooldown`, `blocked`, `incompatible`
+- Model policy changes are generation-tracked and applied only to new requests
+- In-flight requests stay on the model/key they already started with
+
+### 🧷 Harness Mode
+
+- Harness mode is separate from `BROKE_MODE=cli|router`
+- Supported profiles: `off`, `throughput`, `balanced`, `high_assurance`
+- Verdict algebra: `ACCEPT`, `ACCEPT_WITH_WARNINGS`, `RETRY_NARROW`, `RETRY_BROAD`, `ESCALATE`, `BLOCK`
+- Blocks integrity and boundary violations
+- Retries weak or incomplete work
+- Warns on mediocre but still operational work
+- Persists last verdict and categories for later inspection
+- Caches stable role doctrine, normalized evidence packets, and repeat-review verdicts to reduce prompt drift and no-op re-review churn
+- `broke harness run` turns BrokeLLM into the launch boundary for a mediated CLI-agent run with per-run ledgering and shimmed command observation
+
+### 🔒 Local Security
+
+![BrokeLLM secure mediated execution](./docs/assets/brokellm-secure-mediated-execution.png)
+
+- BrokeLLM proxy binds to `127.0.0.1:4000`
+- LiteLLM binds to `127.0.0.1:4001`
+- Launch preflight enforces the pinned LiteLLM version, lockfile drift checks, `.pth` allowlisting, `PYTHONPATH` hygiene, `600` runtime file permissions, and harness shim integrity before BrokeLLM starts or launches a client
+- Client requests require a local BrokeLLM token, except local health endpoints
+- Proxy-to-LiteLLM traffic uses a separate internal master token
+- Runtime policy/state/token files are written with restricted local permissions and shared file locking
+- Claude, Codex, and Gemini launch through a sanitized client env to reduce stale auth/base-url leakage
+- Provider secrets are injected only into the specific child processes that need them; BrokeLLM no longer globally exports `.env`
+- Launched client sessions write an audit trail to `.launch_audit.log` showing the injected env surface and secret counts, never secret values or secret variable names
+- The proxy fails closed on unknown routed model ids with `400 invalid_model`
+- The proxy rate-limits repeated invalid auth attempts from the same client address
+
+### 📦 Locked Supply Chain
+
+- Top-level dependency input is pinned exactly in `requirements.txt`
+- Full transitive lock lives in `requirements.lock`
+- Installs use `pip --require-hashes`
+- Optional local wheel mirror lives in `vendor/wheels`
+- `make lock` refreshes the hash-verified lock file
+- `make mirror-wheels` refreshes the local wheel mirror
+
+### 🧱 Sandbox Profiles
+
+- `normal` keeps compatibility highest while still using targeted child-process env injection
+- `hardened` adds the same isolated env launch with stricter process umask
+- `strict` runs launched clients under `bwrap` with an explicit filesystem/environment boundary and no arbitrary outbound network
+- In `strict`, Claude and Codex get a local-only bridge back to the BrokeLLM proxy over a Unix socket; Gemini is blocked because it still needs direct network access
+- Strict-mode home binds are narrowed to client-specific state directories instead of broad `$HOME/.config` / `$HOME/.cache` exposure, and the sandbox only mounts BrokeLLM's `bin/` helpers rather than the full BrokeLLM repo
+- Sandbox profiles apply to launched clients, not the internal BrokeLLM proxy itself
 
 ---
 
@@ -170,10 +212,14 @@ broke list
 broke models
 broke swap
 broke swap <team>
+broke fallback <slot>               # interactive backend picker
 broke fallback <slot> <fb1> [fb2...]
+broke fallback policy
 ```
 
 ### Teams
+
+![BrokeLLM teams and profiles execution](./docs/assets/brokellm-teams-profiles-execution.png)
 
 ```bash
 broke team save <name> [cli|route]
@@ -204,7 +250,94 @@ broke explain <slot>
 broke route <slot>
 broke metrics
 broke probe <slot>
+broke key-policy
+broke key-state
+broke model-policy
+broke model-state
+broke sandbox
+broke harness
 ```
+
+### Live Key Policy
+
+![BrokeLLM policy generation isolation](./docs/assets/brokellm-policy-generation-isolation.png)
+
+```bash
+broke key-policy
+broke key-policy openrouter --mode round_robin --cooldown 45 --retries 2 --order OPENROUTER_API_KEY_2,OPENROUTER_API_KEY
+broke key-state
+broke key-state set OPENROUTER_API_KEY_2 blocked
+```
+
+Policy changes apply to new requests without forcing you to exit the current client session. In-flight requests keep using the key they already started with.
+
+### Live Model Policy
+
+![BrokeLLM live model policy](./docs/assets/brokellm-live-model-policy.png)
+
+```bash
+broke model-policy
+broke model-policy sonnet --mode priority_order --cooldown 60 --retries 2 --order OR/Step-3.5,Cerebras/GPT-OSS-120B
+broke model-state
+broke model-state set "Cerebras/GPT-OSS-120B" cooldown
+```
+
+Model policy changes apply to new requests without forcing you to exit the current client session. In-flight requests keep using the model they already started with.
+
+### Sandbox Profiles
+
+```bash
+broke sandbox
+broke sandbox set hardened
+broke sandbox set strict
+```
+
+`strict` is intentionally optional. It is more isolated, but it can break clients that expect broader filesystem or session access.
+
+Network policy by profile:
+
+- `normal` → unrestricted
+- `hardened` → unrestricted
+- `strict` → local-only for Claude/Codex, denied for Gemini
+
+### Harness Mode
+
+![BrokeLLM harness verdict flow](./docs/assets/brokellm-harness-verdict-flow.png)
+
+```bash
+broke harness
+broke harness run --policy balanced -- --help
+broke harness set throughput
+broke harness set balanced
+broke harness set high_assurance
+broke harness evaluate --worker ACCEPT --verifier RETRY_BROAD --adversary ACCEPT_WITH_WARNINGS --risk normal --retries 0
+broke harness evaluate --task "fix fallback routing" --diff "bin/_mapping.py changed" --tests "python3 -m unittest"
+```
+
+Harness mode is orthogonal to `cli` vs `router` mode. It does not replace routing. It adds a runtime decision layer on top of deterministic checks and optional worker/verifier/adversary verdict inputs.
+
+`broke harness run` is the first mediated-runtime slice. It registers a `run_id`, builds a per-run env plan, prepends harness shims for key tools, writes an append-only event ledger under `.runtime/harness/<run_id>/events.jsonl`, and opens a completion checkpoint when the launched client exits.
+
+Spec docs:
+
+![BrokeLLM doctrine stack](./docs/assets/brokellm-doctrine-stack.png)
+
+- [Harness Core](./docs/harness/CORE.md)
+- [Harness Code Profile](./docs/harness/CODE.md)
+- [Harness GSD Overlay](./docs/harness/GSD.md)
+
+Worker lane options:
+
+- default: `broke_router` with `broke_managed` credentials
+- elevated option: `provider_direct` with `provider_managed` credentials for the worker lane
+
+Example:
+
+```bash
+broke harness run --worker-route provider_direct --elevated --provider claude -- --help
+```
+
+Provider-direct worker runs are explicit on purpose. They are treated as authority expansion and are denied unless `--elevated` is present.
 
 ### Snapshots
 
@@ -298,12 +431,20 @@ make verify
 
 Current regression coverage:
 
+- Launch preflight integrity enforcement
 - Health agreement across `doctor`, `route`, and `explain`
 - Pinned-state persistence during swap
 - Floating alias drift warnings
 - Zero-value limit semantics
 - Installer interpreter consistency
 - Env-name consistency
+- Multi-key deployment generation across providers
+- Live key-policy generation updates
+- Live key-state persistence and cooldown behavior
+- Live model-policy generation updates
+- Live model-state persistence and cooldown behavior
+- Local proxy auth and internal upstream auth enforcement
+- Strict sandbox local-only bridge and launch audit hooks
 
 ---
 
@@ -326,10 +467,22 @@ Current regression coverage:
 The installer will:
 
 - Verify Python
-- Install `litellm[proxy]`
+- Install locked LiteLLM dependencies from `requirements.lock`
 - Link `broke` into your `PATH`
 - Create `.env` from `.env.template` if needed
 - Initialize the default routing files
+
+Optional supply-chain modes:
+
+```bash
+./install.sh --mirror-wheels
+./install.sh --use-wheel-mirror
+./install.sh --offline
+```
+
+- `--mirror-wheels` downloads the exact locked artifacts into `vendor/wheels`
+- `--use-wheel-mirror` prefers the local wheel mirror during install
+- `--offline` installs only from `vendor/wheels`
 
 ### Configuration
 
@@ -341,14 +494,35 @@ Fill in whichever keys you plan to use:
 
 ```env
 OPENROUTER_API_KEY=
+OPENROUTER_API_KEY_2=
 GROQ_API_KEY=
+GROQ_API_KEY_2=
 CEREBRAS_API_KEY=
+CEREBRAS_API_KEY_2=
 GITHUB_TOKEN=
+GITHUB_TOKEN_2=
 GEMINI_API_KEY=
+GEMINI_API_KEY_2=
 HF_TOKEN=
+HF_TOKEN_2=
 ```
 
 You do not need every key — only the providers you actively route to need valid credentials.
+
+Optional security overrides:
+
+```env
+BROKE_CLIENT_TOKEN=
+BROKE_INTERNAL_MASTER_KEY=
+```
+
+If you leave those unset, BrokeLLM generates local tokens automatically and stores them in restricted local files.
+
+Dependency integrity files:
+
+- [requirements.txt](/home/bamn/BrokeLLM/requirements.txt)
+- [requirements.lock](/home/bamn/BrokeLLM/requirements.lock)
+- [vendor/wheels](/home/bamn/BrokeLLM/vendor/wheels)
 
 ---
 

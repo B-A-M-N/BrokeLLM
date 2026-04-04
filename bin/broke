@@ -8,13 +8,59 @@
 # =================================================================
 
 DIR="$( cd "$( dirname "$(readlink -f "${BASH_SOURCE[0]}")" )/.." && pwd )"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3)}"
 PORT=4000
+INTERNAL_PORT=4001
 GATEWAY="http://localhost:$PORT"
 CONFIG="$DIR/config.json"
 MAPPING="$DIR/.mapping.json"
 BACKENDS="$DIR/.backends.json"
 PROVIDER_FILE="$DIR/.provider"
 FREEZE_FILE="$DIR/.freeze"
+CLIENT_TOKEN_FILE="$DIR/.broke_client_token"
+INTERNAL_TOKEN_FILE="$DIR/.broke_internal_token"
+SANDBOX_PROFILE_FILE="$DIR/.sandbox-profile"
+RUNTIME_ROOT="$DIR/.runtime"
+PROXY_SOCKET_FILE="$RUNTIME_ROOT/proxy.sock"
+LAUNCH_AUDIT_LOG="$DIR/.launch_audit.log"
+HARNESS_RUNTIME_ROOT="$RUNTIME_ROOT/harness"
+
+CLIENT_PASS_ENV_KEYS=(HOME PATH USER LOGNAME SHELL TERM LANG LC_ALL LC_CTYPE COLORTERM SSL_CERT_FILE SSL_CERT_DIR REQUESTS_CA_BUNDLE CURL_CA_BUNDLE NO_COLOR FORCE_COLOR TMPDIR PWD)
+RUNTIME_PASS_ENV_KEYS=(HOME PATH USER LOGNAME SHELL LANG LC_ALL LC_CTYPE SSL_CERT_FILE SSL_CERT_DIR REQUESTS_CA_BUNDLE CURL_CA_BUNDLE TMPDIR)
+PROVIDER_ENV_REGEX='^(OPENROUTER_API_KEY(_[0-9]+)?|GROQ_API_KEY(_[0-9]+)?|CEREBRAS_API_KEY(_[0-9]+)?|GITHUB_TOKEN(_[0-9]+)?|GEMINI_API_KEY(_[0-9]+)?|HF_TOKEN(_[0-9]+)?)$'
+RUNTIME_STATE_FILES=(
+  "$CLIENT_TOKEN_FILE"
+  "$INTERNAL_TOKEN_FILE"
+  "$DIR/.deployments.json"
+  "$DIR/.rotation.json"
+  "$DIR/.key_state.json"
+  "$DIR/.model_policy.json"
+  "$DIR/.model_state.json"
+  "$DIR/.rotation.log"
+  "$DIR/.env"
+  "$DIR/.env.claude"
+  "$LAUNCH_AUDIT_LOG"
+  "$SANDBOX_PROFILE_FILE"
+  "$DIR/.harness.json"
+  "$DIR/.harness_state.json"
+  "$DIR/.harness_prompt_contracts.json"
+  "$DIR/.harness_prefix_cache.json"
+  "$DIR/.harness_evidence_cache.json"
+  "$DIR/.harness_review_cache.json"
+  "$DIR/.harness_runs.json"
+  "$DIR/.harness_active_run.json"
+)
+
+HARNESS_RUN_ACTIVE=0
+HARNESS_RUN_ID=""
+HARNESS_RUN_DIR=""
+HARNESS_POLICY_PROFILE=""
+HARNESS_RISK_TIER=""
+HARNESS_ALLOWED_PATHS=""
+HARNESS_PROVIDER=""
+HARNESS_WORKER_ROUTE="broke_router"
+HARNESS_WORKER_CREDENTIAL_SOURCE="broke_managed"
+HARNESS_ELEVATED=0
 
 # ── init mapping if missing ──────────────────────────────────────────
 ensure_mapping() {
@@ -27,18 +73,662 @@ generate_config() {
   python3 "$DIR/bin/_mapping.py" config
 }
 
-# ── load env ─────────────────────────────────────────────────────────
-load_env() {
-  [ -f "$DIR/.env" ] && { set -a; source "$DIR/.env"; set +a; }
+env_file_value() {
+  local file="$1"
+  local key="$2"
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      ''|\#*) continue ;;
+      "$key="*) printf '%s' "${line#*=}"; return 0 ;;
+    esac
+  done < "$file"
+}
+
+lookup_env_value() {
+  local key="$1"
+  local file="${2:-$DIR/.env}"
+  if [ -n "${!key+x}" ] && [ -n "${!key}" ]; then
+    printf '%s' "${!key}"
+    return 0
+  fi
+  env_file_value "$file" "$key"
+}
+
+append_env_pair() {
+  local -n ref="$1"
+  local key="$2"
+  local value="$3"
+  [ -n "$value" ] && ref+=("$key=$value")
+}
+
+append_env_if_set() {
+  local -n ref="$1"
+  local key="$2"
+  local file="${3:-$DIR/.env}"
+  local value
+  value="$(lookup_env_value "$key" "$file")"
+  [ -n "$value" ] && ref+=("$key=$value")
+}
+
+append_matching_file_env() {
+  local -n ref="$1"
+  local file="$2"
+  local regex="$3"
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      ''|\#*) continue ;;
+      *=*) ;;
+      *) continue ;;
+    esac
+    local key="${line%%=*}"
+    local value="${line#*=}"
+    [[ "$key" =~ $regex ]] || continue
+    ref+=("$key=$value")
+  done < "$file"
+}
+
+seed_env_from_keys() {
+  local -n ref="$1"
+  shift
+  local key value
+  for key in "$@"; do
+    value="${!key:-}"
+    [ -n "$value" ] && ref+=("$key=$value")
+  done
+}
+
+seed_client_env() {
+  local -n ref="$1"
+  seed_env_from_keys "$1" "${CLIENT_PASS_ENV_KEYS[@]}"
+}
+
+seed_runtime_env() {
+  local -n ref="$1"
+  seed_env_from_keys "$1" "${RUNTIME_PASS_ENV_KEYS[@]}"
+}
+
+get_sandbox_profile() {
+  if [ -n "${BROKE_SANDBOX_PROFILE:-}" ]; then
+    printf '%s' "$BROKE_SANDBOX_PROFILE"
+    return 0
+  fi
+  if [ -s "$SANDBOX_PROFILE_FILE" ]; then
+    cat "$SANDBOX_PROFILE_FILE"
+    return 0
+  fi
+  printf '%s' "normal"
+}
+
+set_claude_env_export() {
+  local name="$1"
+  local value="$2"
+  local env_claude="$DIR/.env.claude"
+  "$PYTHON_BIN" - <<PY
+import os
+import pathlib
+env_path = pathlib.Path(${env_claude@Q})
+name = ${name@Q}
+value = ${value@Q}
+if env_path.exists() and (env_path.is_symlink() or not env_path.is_file()):
+    raise SystemExit(f"refusing unsafe .env.claude path: {env_path}")
+env_path.parent.mkdir(parents=True, exist_ok=True)
+lines = env_path.read_text().splitlines() if env_path.exists() else []
+updated = []
+found = False
+for raw_line in lines:
+    line = raw_line.strip()
+    if line.startswith(f"export {name}="):
+        updated.append(f'export {name}="{value}"')
+        found = True
+    else:
+        updated.append(raw_line)
+if not found:
+    updated.append(f'export {name}="{value}"')
+tmp_path = env_path.with_name(env_path.name + ".tmp")
+fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w", encoding="utf-8") as fh:
+    fh.write("\\n".join(updated) + ("\\n" if updated else ""))
+os.replace(tmp_path, env_path)
+env_path.chmod(0o600)
+PY
+}
+
+get_claude_env_export() {
+  local name="$1"
+  local env_claude="$DIR/.env.claude"
+  "$PYTHON_BIN" - <<PY
+import pathlib
+env_path = pathlib.Path(${env_claude@Q})
+name = ${name@Q}
+if not env_path.exists():
+    raise SystemExit(0)
+for raw_line in env_path.read_text().splitlines():
+    line = raw_line.strip()
+    prefix = f"export {name}="
+    if not line.startswith(prefix):
+        continue
+    value = line[len(prefix):].strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1]
+    print(value)
+    break
+PY
+}
+
+set_sandbox_profile() {
+  local mode="$1"
+  case "$mode" in
+    normal|hardened|strict) ;;
+    *)
+      echo "[sandbox] invalid profile: $mode"
+      echo "          valid options: normal hardened strict"
+      exit 1
+      ;;
+  esac
+  printf '%s\n' "$mode" > "$SANDBOX_PROFILE_FILE"
+  chmod 600 "$SANDBOX_PROFILE_FILE" 2>/dev/null || true
+  echo "[sandbox] profile set to $mode"
+}
+
+sandbox_network_policy() {
+  local profile="${1:-normal}"
+  local client="${2:-}"
+  case "$profile" in
+    normal) printf '%s' "unrestricted" ;;
+    hardened) printf '%s' "unrestricted" ;;
+    strict)
+      case "$client" in
+        claude|codex) printf '%s' "local-only" ;;
+        *) printf '%s' "denied" ;;
+      esac
+      ;;
+    *) printf '%s' "unrestricted" ;;
+  esac
+}
+
+profile_runtime_dir() {
+  local profile="$1"
+  printf '%s' "$RUNTIME_ROOT/$profile"
+}
+
+ensure_profile_runtime_dirs() {
+  local profile="$1"
+  local base
+  base="$(profile_runtime_dir "$profile")"
+  mkdir -p "$base/tmp" "$base/cache" "$base/state"
+  chmod 700 "$base" "$base/tmp" "$base/cache" "$base/state" 2>/dev/null || true
+}
+
+append_profile_runtime_env() {
+  local -n ref="$1"
+  local profile="$2"
+  local client="$3"
+  local base
+  base="$(profile_runtime_dir "$profile")"
+  ensure_profile_runtime_dirs "$profile"
+  append_env_pair "$1" "TMPDIR" "$base/tmp"
+  append_env_pair "$1" "XDG_CACHE_HOME" "$base/cache"
+  append_env_pair "$1" "XDG_STATE_HOME" "$base/state"
+  append_env_pair "$1" "BROKE_SANDBOX_PROFILE" "$profile"
+  append_env_pair "$1" "BROKE_SANDBOX_NETWORK_POLICY" "$(sandbox_network_policy "$profile" "$client")"
+}
+
+harness_log_event() {
+  local run_id="$1"
+  local event_type="$2"
+  local phase="$3"
+  local actor_kind="$4"
+  local actor_id="$5"
+  local payload="${6:-{}}"
+  local artifact_refs="${7:-[]}"
+  [ -n "$run_id" ] || return 0
+  python3 "$DIR/bin/_mapping.py" harness event \
+    --run-id "$run_id" \
+    --event-type "$event_type" \
+    --phase "$phase" \
+    --actor-kind "$actor_kind" \
+    --actor-id "$actor_id" \
+    --payload "$payload" \
+    --artifact-refs "$artifact_refs" >/dev/null 2>&1 || true
+}
+
+prepare_harness_shims() {
+  local run_dir="$1"
+  local shim_dir="$run_dir/shims"
+  local realpaths_file="$run_dir/realpaths.json"
+  local tools=(git pytest npm pnpm pip python python3 node go cargo make)
+  local tool real first=1
+  mkdir -p "$shim_dir" "$run_dir/artifacts" "$run_dir/tmp" "$run_dir/cache" "$run_dir/state"
+  chmod 700 "$run_dir" "$shim_dir" "$run_dir/artifacts" "$run_dir/tmp" "$run_dir/cache" "$run_dir/state" 2>/dev/null || true
+  chmod 755 "$DIR/bin/_harness_shim.py" 2>/dev/null || true
+  printf '{\n' > "$realpaths_file"
+  for tool in "${tools[@]}"; do
+    real="$(command -v "$tool" 2>/dev/null || true)"
+    [ -n "$real" ] || continue
+    ln -sf "$DIR/bin/_harness_shim.py" "$shim_dir/$tool"
+    if [ "$first" -eq 0 ]; then
+      printf ',\n' >> "$realpaths_file"
+    fi
+    first=0
+    printf '  "%s": "%s"' "$tool" "$real" >> "$realpaths_file"
+  done
+  printf '\n}\n' >> "$realpaths_file"
+  chmod 600 "$realpaths_file" 2>/dev/null || true
+  validate_harness_shims "$shim_dir"
+}
+
+validate_harness_shims() {
+  local shim_dir="$1"
+  local entry target
+  [ -d "$shim_dir" ] || return 1
+  chmod 700 "$shim_dir" 2>/dev/null || true
+  for entry in "$shim_dir"/*; do
+    [ -e "$entry" ] || continue
+    [ -L "$entry" ] || { echo "[harness] invalid shim entry: $entry is not a symlink" >&2; return 1; }
+    target="$(readlink -f "$entry" 2>/dev/null || true)"
+    [ "$target" = "$DIR/bin/_harness_shim.py" ] || { echo "[harness] invalid shim target for $entry" >&2; return 1; }
+  done
+}
+
+register_harness_run() {
+  local provider="$1"
+  local policy="$2"
+  local risk="$3"
+  local sandbox="$4"
+  local workspace="$5"
+  local allowed_paths="$6"
+  local worker_route="${7:-broke_router}"
+  local credential_source="${8:-broke_managed}"
+  local elevated="${9:-0}"
+  local record
+  local -a register_args=(
+    --provider "$provider"
+    --policy "$policy"
+    --risk "$risk"
+    --sandbox "$sandbox"
+    --workspace "$workspace"
+    --allowed-paths "$allowed_paths"
+    --worker-route "$worker_route"
+    --credential-source "$credential_source"
+  )
+  [ "$elevated" = "1" ] && register_args+=(--elevated)
+  record="$(python3 "$DIR/bin/_mapping.py" harness run-register \
+    "${register_args[@]}")" || return 1
+  HARNESS_RUN_ID="$("$PYTHON_BIN" - <<PY
+import json
+print(json.loads(${record@Q})["run_id"])
+PY
+)"
+  HARNESS_RUN_DIR="$HARNESS_RUNTIME_ROOT/$HARNESS_RUN_ID"
+  HARNESS_POLICY_PROFILE="$policy"
+  HARNESS_RISK_TIER="$risk"
+  HARNESS_ALLOWED_PATHS="$allowed_paths"
+  HARNESS_PROVIDER="$provider"
+  HARNESS_WORKER_ROUTE="$worker_route"
+  HARNESS_WORKER_CREDENTIAL_SOURCE="$credential_source"
+  HARNESS_ELEVATED="$elevated"
+  mkdir -p "$HARNESS_RUNTIME_ROOT"
+  chmod 700 "$HARNESS_RUNTIME_ROOT" 2>/dev/null || true
+  prepare_harness_shims "$HARNESS_RUN_DIR"
+  HARNESS_RUN_ACTIVE=1
+  harness_log_event "$HARNESS_RUN_ID" "env_plan.applied" "launch" "harness_controller" "broke" \
+    "{\"target\":\"agent_runtime\",\"allowed_paths\":$(printf '%s' "$allowed_paths" | "$PYTHON_BIN" - <<'PY'
+import json,sys
+print(json.dumps(sys.stdin.read().split(":")))
+PY
+),\"policy\":\"$policy\",\"sandbox\":\"$sandbox\",\"worker_route\":\"$worker_route\",\"credential_source\":\"$credential_source\",\"elevated\":$( [ "$elevated" = "1" ] && printf 'true' || printf 'false' )}"
+}
+
+complete_harness_run() {
+  local verdict="$1"
+  local categories="${2:-[]}"
+  local checkpoint_id="${3:-}"
+  [ "$HARNESS_RUN_ACTIVE" -eq 1 ] || return 0
+  python3 "$DIR/bin/_mapping.py" harness complete \
+    --run-id "$HARNESS_RUN_ID" \
+    --verdict "$verdict" \
+    --categories "$categories" \
+    ${checkpoint_id:+--checkpoint-id "$checkpoint_id"} >/dev/null 2>&1 || true
+  HARNESS_RUN_ACTIVE=0
+}
+
+append_harness_runtime_env() {
+  local -n ref="$1"
+  local client="$2"
+  [ "$HARNESS_RUN_ACTIVE" -eq 1 ] || return 0
+  append_env_pair "$1" "BROKE_HARNESS_RUN_ID" "$HARNESS_RUN_ID"
+  append_env_pair "$1" "BROKE_HARNESS_POLICY_PROFILE" "$HARNESS_POLICY_PROFILE"
+  append_env_pair "$1" "BROKE_HARNESS_RISK_TIER" "$HARNESS_RISK_TIER"
+  append_env_pair "$1" "BROKE_HARNESS_ALLOWED_PATHS" "$HARNESS_ALLOWED_PATHS"
+  append_env_pair "$1" "BROKE_HARNESS_EVENTS_FILE" "$HARNESS_RUN_DIR/events.jsonl"
+  append_env_pair "$1" "BROKE_HARNESS_ARTIFACT_DIR" "$HARNESS_RUN_DIR/artifacts"
+  append_env_pair "$1" "BROKE_HARNESS_REALPATHS_FILE" "$HARNESS_RUN_DIR/realpaths.json"
+  append_env_pair "$1" "BROKE_HARNESS_WORKSPACE_ROOT" "$PWD"
+  append_env_pair "$1" "BROKE_HARNESS_PROVIDER" "$HARNESS_PROVIDER"
+  append_env_pair "$1" "BROKE_HARNESS_AGENT" "$client"
+  append_env_pair "$1" "BROKE_HARNESS_WORKER_ROUTE" "$HARNESS_WORKER_ROUTE"
+  append_env_pair "$1" "BROKE_HARNESS_CREDENTIAL_SOURCE" "$HARNESS_WORKER_CREDENTIAL_SOURCE"
+  append_env_pair "$1" "PATH" "$HARNESS_RUN_DIR/shims:${PATH}"
+}
+
+collect_harness_checkpoint_artifact() {
+  [ "$HARNESS_RUN_ACTIVE" -eq 1 ] || return 0
+  local status_file="$HARNESS_RUN_DIR/artifacts/git-status.txt"
+  local checkpoint_id="chk_$(date +%s)"
+  if git -C "$PWD" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$PWD" status --porcelain > "$status_file" 2>/dev/null || true
+  else
+    : > "$status_file"
+  fi
+  chmod 600 "$status_file" 2>/dev/null || true
+  harness_log_event "$HARNESS_RUN_ID" "checkpoint.opened" "review" "harness_controller" "broke" \
+    "{\"checkpoint_id\":\"$checkpoint_id\",\"triggerKind\":\"completion_proposal\"}" \
+    "[\"$status_file\"]"
+  printf '%s' "$checkpoint_id"
+}
+
+run_preflight_or_die() {
+  python3 "$DIR/bin/_mapping.py" preflight --quiet >/dev/null || {
+    echo "[preflight] failed — run 'broke doctor' to see integrity failures"
+    exit 1
+  }
+}
+
+log_launch_audit() {
+  local client="$1"
+  local profile="$2"
+  local network_policy="$3"
+  local env_name="$4"
+  local command_name="$5"
+  local -n env_ref="$env_name"
+  local -a keys=()
+  local secret_count=0 provider_secret_count=0 broke_secret_count=0
+  local assignment key keys_csv
+  for assignment in "${env_ref[@]}"; do
+    key="${assignment%%=*}"
+    keys+=("$key")
+    case "$key" in
+      *TOKEN*|*KEY*|*AUTH*|*SECRET*|BROKE_*)
+        secret_count=$((secret_count + 1))
+        case "$key" in
+          BROKE_*) broke_secret_count=$((broke_secret_count + 1)) ;;
+          *) provider_secret_count=$((provider_secret_count + 1)) ;;
+        esac
+        ;;
+    esac
+  done
+  keys_csv="$(IFS=,; printf '%s' "${keys[*]}")"
+  python3 - <<PY
+import json, pathlib, time
+path = pathlib.Path(${LAUNCH_AUDIT_LOG@Q})
+entry = {
+    "ts": int(time.time()),
+    "client": ${client@Q},
+    "profile": ${profile@Q},
+    "network_policy": ${network_policy@Q},
+    "command": ${command_name@Q},
+    "env_keys": [k for k in ${keys_csv@Q}.split(",") if k],
+    "secret_surface": {
+        "total": ${secret_count},
+        "provider_managed": ${provider_secret_count},
+        "broke_managed": ${broke_secret_count},
+    },
+}
+path.parent.mkdir(parents=True, exist_ok=True)
+with path.open("a") as fh:
+    fh.write(json.dumps(entry) + "\\n")
+path.chmod(0o600)
+PY
+}
+
+harden_runtime_files() {
+  local file
+  for file in "${RUNTIME_STATE_FILES[@]}"; do
+    [ -e "$file" ] || continue
+    chmod 600 "$file" 2>/dev/null || true
+  done
+}
+
+sanitize_client_env() {
+  local client="${1:-}"
+  case "$client" in
+    claude)
+      unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_API_BASE
+      unset GEMINI_API_KEY_AUTH_MECHANISM GOOGLE_GEMINI_BASE_URL GOOGLE_API_KEY
+      unset CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX
+      ;;
+    codex)
+      unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_API_BASE
+      unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
+      unset GEMINI_API_KEY_AUTH_MECHANISM GOOGLE_GEMINI_BASE_URL GOOGLE_API_KEY
+      ;;
+    gemini)
+      unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_API_BASE
+      unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
+      unset GOOGLE_API_KEY
+      unset GEMINI_API_KEY_AUTH_MECHANISM GOOGLE_GEMINI_BASE_URL
+      ;;
+  esac
+}
+
+append_provider_direct_auth() {
+  local -n ref="$1"
+  local client="${2:-}"
+  case "$client" in
+    claude)
+      append_env_if_set "$1" "ANTHROPIC_API_KEY" "$DIR/.env"
+      append_env_if_set "$1" "ANTHROPIC_AUTH_TOKEN" "$DIR/.env.claude"
+      append_env_if_set "$1" "ANTHROPIC_API_KEY" "$DIR/.env.claude"
+      ;;
+    codex)
+      append_env_if_set "$1" "OPENAI_API_KEY" "$DIR/.env"
+      append_env_if_set "$1" "OPENAI_BASE_URL" "$DIR/.env"
+      append_env_if_set "$1" "OPENAI_API_BASE" "$DIR/.env"
+      ;;
+    gemini)
+      append_env_if_set "$1" "GEMINI_API_KEY" "$DIR/.env"
+      append_env_if_set "$1" "GOOGLE_API_KEY" "$DIR/.env"
+      ;;
+  esac
+}
+
+worker_route_mode() {
+  if [ "$HARNESS_RUN_ACTIVE" -eq 1 ]; then
+    printf '%s' "$HARNESS_WORKER_ROUTE"
+    return 0
+  fi
+  printf '%s' "broke_router"
+}
+
+ensure_secret_file() {
+  local file="$1"
+  local env_name="$2"
+  local prefix="$3"
+  local value
+  value="$(lookup_env_value "$env_name")"
+  if [ -n "$value" ]; then
+    "$PYTHON_BIN" - <<PY
+import os, pathlib
+path = pathlib.Path(${file@Q})
+if path.exists() and (path.is_symlink() or not path.is_file()):
+    raise SystemExit(f"refusing unsafe secret path: {path}")
+flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+if hasattr(os, "O_NOFOLLOW"):
+    flags |= os.O_NOFOLLOW
+fd = os.open(str(path), flags, 0o600)
+with os.fdopen(fd, "w", encoding="utf-8") as fh:
+    fh.write(${value@Q})
+os.chmod(path, 0o600)
+PY
+    printf '%s' "$value"
+    return
+  fi
+  if [ -f "$file" ] && [ -s "$file" ]; then
+    chmod 600 "$file" 2>/dev/null || true
+    cat "$file"
+    return
+  fi
+  value="$("$PYTHON_BIN" - <<PY
+import secrets
+print("${prefix}" + secrets.token_urlsafe(32))
+PY
+)"
+  "$PYTHON_BIN" - <<PY
+import os, pathlib
+path = pathlib.Path(${file@Q})
+if path.exists():
+    if path.is_symlink() or not path.is_file():
+        raise SystemExit(f"refusing unsafe secret path: {path}")
+else:
+    path.parent.mkdir(parents=True, exist_ok=True)
+flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+if hasattr(os, "O_NOFOLLOW"):
+    flags |= os.O_NOFOLLOW
+try:
+    fd = os.open(str(path), flags, 0o600)
+except FileExistsError:
+    with path.open("r", encoding="utf-8") as fh:
+        print(fh.read(), end="")
+    raise SystemExit(0)
+with os.fdopen(fd, "w", encoding="utf-8") as fh:
+    fh.write(${value@Q})
+os.chmod(path, 0o600)
+PY
+  value="$(cat "$file")"
+  printf '%s' "$value"
+}
+
+run_env_command() {
+  local -n env_ref="$1"
+  shift
+  env -i "${env_ref[@]}" "$@"
+}
+
+run_bwrap_command() {
+  local client="$1"
+  local -n env_ref="$2"
+  local network_policy="$3"
+  shift 3
+  local cmd_path
+  cmd_path="$(command -v "$1" 2>/dev/null || true)"
+  local -a args=(
+    bwrap
+    --clearenv
+    --die-with-parent
+    --new-session
+    --unshare-all
+    --proc /proc
+    --dev /dev
+    --tmpfs /tmp
+    --ro-bind /usr /usr
+    --ro-bind-try /bin /bin
+    --ro-bind-try /lib /lib
+    --ro-bind-try /lib64 /lib64
+    --ro-bind-try /etc /etc
+    --ro-bind-try /opt /opt
+    --bind "$PWD" "$PWD"
+    --ro-bind "$DIR/bin" "$DIR/bin"
+    --chdir "$PWD"
+  )
+  if [ "$network_policy" = "unrestricted" ]; then
+    args+=(--share-net)
+  fi
+  if [ -n "$cmd_path" ]; then
+    args+=(--ro-bind "$(dirname "$cmd_path")" "$(dirname "$cmd_path")")
+  fi
+  case "$client" in
+    claude)
+      args+=(--bind-try "$HOME/.claude" "$HOME/.claude")
+      ;;
+    codex) args+=(--bind-try "$HOME/.codex" "$HOME/.codex") ;;
+    gemini)
+      args+=(--bind-try "$HOME/.gemini_security" "$HOME/.gemini_security")
+      ;;
+  esac
+  local assignment key value
+  for assignment in "${env_ref[@]}"; do
+    key="${assignment%%=*}"
+    value="${assignment#*=}"
+    args+=(--setenv "$key" "$value")
+  done
+  if [ "$network_policy" = "local-only" ]; then
+    args+=(--bind "$RUNTIME_ROOT" "$RUNTIME_ROOT")
+    args+=(-- /bin/bash -lc 'python3 "$1" "$2" "$3" & bridge_pid=$!; trap "kill $bridge_pid 2>/dev/null || true" EXIT INT TERM; sleep 0.2; shift 3; exec "$@"' bash "$DIR/bin/_socket_bridge.py" "$PORT" "$PROXY_SOCKET_FILE" "$@")
+  else
+    args+=(-- "$@")
+  fi
+  "${args[@]}"
+}
+
+run_client_command() {
+  local client="$1"
+  local env_name="$2"
+  shift 2
+  local profile
+  profile="$(get_sandbox_profile)"
+  local network_policy
+  network_policy="$(sandbox_network_policy "$profile" "$client")"
+  local -n env_ref="$env_name"
+  append_profile_runtime_env env_ref "$profile" "$client"
+  log_launch_audit "$client" "$profile" "$network_policy" "$env_name" "$1"
+  case "$profile" in
+    normal)
+      run_env_command "$env_name" "$@"
+      ;;
+    hardened)
+      (
+        umask 077
+        run_env_command "$env_name" "$@"
+      )
+      ;;
+    strict)
+      if [ "$network_policy" = "denied" ]; then
+        echo "[sandbox] strict mode denies network for $client; use 'broke sandbox set hardened' for this client"
+        return 1
+      fi
+      if command -v bwrap >/dev/null 2>&1; then
+        run_bwrap_command "$client" "$env_name" "$network_policy" "$@"
+      else
+        echo "[sandbox] strict requested but bwrap is unavailable; falling back to hardened"
+        (
+          umask 077
+          run_env_command "$env_name" "$@"
+        )
+      fi
+      ;;
+    *)
+      run_env_command "$env_name" "$@"
+      ;;
+  esac
 }
 
 # ── gateway ──────────────────────────────────────────────────────────
 start_gateway() {
+  run_preflight_or_die
   lsof -ti :"$PORT" >/dev/null 2>&1 && { echo "[gateway] already running"; return; }
-  load_env
-  echo "[gateway] starting LiteLLM on :$PORT ..."
+  local broke_client_token broke_internal_master_key
+  broke_client_token="$(ensure_secret_file "$CLIENT_TOKEN_FILE" "BROKE_CLIENT_TOKEN" "broke-client-")"
+  broke_internal_master_key="$(ensure_secret_file "$INTERNAL_TOKEN_FILE" "BROKE_INTERNAL_MASTER_KEY" "broke-internal-")"
+  harden_runtime_files
+  mkdir -p "$RUNTIME_ROOT"
+  chmod 700 "$RUNTIME_ROOT" 2>/dev/null || true
+  rm -f "$PROXY_SOCKET_FILE"
+  echo "[gateway] starting LiteLLM on :$INTERNAL_PORT and BrokeLLM proxy on :$PORT ..."
   generate_config
-  litellm --config "$CONFIG" --port "$PORT" >"$DIR/litellm.log" 2>&1 &
+  local -a litellm_env proxy_env
+  seed_runtime_env litellm_env
+  seed_runtime_env proxy_env
+  append_matching_file_env litellm_env "$DIR/.env" "$PROVIDER_ENV_REGEX"
+  append_env_pair litellm_env "LITELLM_MASTER_KEY" "$broke_internal_master_key"
+  append_env_pair proxy_env "BROKE_CLIENT_TOKEN" "$broke_client_token"
+  append_env_pair proxy_env "BROKE_INTERNAL_MASTER_KEY" "$broke_internal_master_key"
+  append_env_pair proxy_env "BROKE_PROXY_UNIX_SOCKET" "$PROXY_SOCKET_FILE"
+  nohup env -i "${litellm_env[@]}" litellm --config "$CONFIG" --host 127.0.0.1 --port "$INTERNAL_PORT" >"$DIR/litellm.log" 2>&1 </dev/null &
+  nohup env -i "${proxy_env[@]}" python3 "$DIR/bin/_proxy.py" "$PORT" "$INTERNAL_PORT" >"$DIR/broke-proxy.log" 2>&1 </dev/null &
   for i in $(seq 1 30); do
     curl -sf "http://localhost:$PORT/health/liveliness" >/dev/null 2>&1 && { echo "[gateway] ready"; return; }
     sleep 1
@@ -47,37 +737,67 @@ start_gateway() {
 }
 
 restart_gateway() {
-  pkill -f "litellm.*config" 2>/dev/null; sleep 1; start_gateway
+  pkill -f "litellm.*config" 2>/dev/null
+  pkill -f "$DIR/bin/_proxy.py" 2>/dev/null
+  sleep 1
+  start_gateway
 }
 
 stop_gateway() {
-  local pid; pid=$(lsof -ti :"$PORT" 2>/dev/null)
-  [ -n "$pid" ] && { kill "$pid"; echo "[gateway] stopped"; return; }
+  local stopped=0
+  local pids
+  pids=$(lsof -ti :"$PORT" 2>/dev/null | sort -u)
+  [ -n "$pids" ] && { echo "$pids" | xargs -r kill; stopped=1; }
+  pids=$(lsof -ti :"$INTERNAL_PORT" 2>/dev/null | sort -u)
+  [ -n "$pids" ] && { echo "$pids" | xargs -r kill; stopped=1; }
+  pkill -f "$DIR/bin/_proxy.py" 2>/dev/null && stopped=1
+  pkill -f "litellm.*config" 2>/dev/null && stopped=1
+  [ "$stopped" -eq 1 ] && { echo "[gateway] stopped"; return; }
   echo "[gateway] not running"
 }
 
 claude_env() {
-  export ANTHROPIC_AUTH_TOKEN="dummy"
-  export ANTHROPIC_API_KEY=""
-  [ -f "$DIR/.env.claude" ] && source "$DIR/.env.claude"
-  load_env
-  export ANTHROPIC_BASE_URL="$GATEWAY"
-  # Clear any saved model preference so ANTHROPIC_MODEL env var wins
-  local settings="$HOME/.claude/settings.json"
-  if [ -f "$settings" ] && command -v python3 &>/dev/null; then
-    python3 -c "
-import json, sys
-with open('$settings') as f: d = json.load(f)
-if 'model' in d:
-    d.pop('model')
-    with open('$settings', 'w') as f: json.dump(d, f, indent=2)
-" 2>/dev/null
+  sanitize_client_env claude
+  local -n out_ref="$1"
+  seed_client_env "$1"
+  if [ "$(worker_route_mode)" = "provider_direct" ]; then
+    append_provider_direct_auth "$1" "claude"
+  else
+    local broke_client_token
+    broke_client_token="$(ensure_secret_file "$CLIENT_TOKEN_FILE" "BROKE_CLIENT_TOKEN" "broke-client-")"
+    append_env_pair "$1" "BROKE_CLIENT_TOKEN" "$broke_client_token"
+    append_env_pair "$1" "ANTHROPIC_AUTH_TOKEN" "$broke_client_token"
+    append_env_pair "$1" "ANTHROPIC_BASE_URL" "$GATEWAY"
   fi
+  append_matching_file_env "$1" "$DIR/.env.claude" '^[A-Z_][A-Z0-9_]*$'
+  append_harness_runtime_env "$1" "claude"
 }
 
 codex_env() {
-  load_env
-  export BROKE_CODEX_API_KEY="dummy"
+  sanitize_client_env codex
+  local -n out_ref="$1"
+  seed_client_env "$1"
+  if [ "$(worker_route_mode)" = "provider_direct" ]; then
+    append_provider_direct_auth "$1" "codex"
+  else
+    local broke_client_token
+    broke_client_token="$(ensure_secret_file "$CLIENT_TOKEN_FILE" "BROKE_CLIENT_TOKEN" "broke-client-")"
+    append_env_pair "$1" "BROKE_CLIENT_TOKEN" "$broke_client_token"
+    append_env_pair "$1" "BROKE_CODEX_API_KEY" "$broke_client_token"
+  fi
+  append_harness_runtime_env "$1" "codex"
+}
+
+gemini_env() {
+  sanitize_client_env gemini
+  local -n out_ref="$1"
+  seed_client_env "$1"
+  if [ "$(worker_route_mode)" = "provider_direct" ]; then
+    append_provider_direct_auth "$1" "gemini"
+  else
+    append_matching_file_env "$1" "$DIR/.env" '^(GEMINI_API_KEY(_[0-9]+)?|GOOGLE_API_KEY)$'
+  fi
+  append_harness_runtime_env "$1" "gemini"
 }
 
 get_slot_label() {
@@ -105,22 +825,29 @@ has_model_arg() {
 }
 
 launch_codex() {
-  codex_env
-  start_gateway
+  local -a client_env
+  codex_env client_env
+  if [ "$(worker_route_mode)" != "provider_direct" ]; then
+    start_gateway
+  fi
   local args=(
     -c 'model_provider="broke"'
     -c "model_providers.broke={name=\"BrokeLLM\",base_url=\"$GATEWAY/v1\",env_key=\"BROKE_CODEX_API_KEY\",wire_api=\"responses\"}"
   )
+  if [ "$(worker_route_mode)" = "provider_direct" ]; then
+    run_client_command codex client_env codex "$@"
+    return
+  fi
   if has_model_arg "$@"; then
-    codex "${args[@]}" "$@"
+    run_client_command codex client_env codex "${args[@]}" "$@"
     return
   fi
   local model
   model="$(get_slot_label sonnet)"
   if [ -n "$model" ]; then
-    codex "${args[@]}" -m "$model" "$@"
+    run_client_command codex client_env codex "${args[@]}" -m "$model" "$@"
   else
-    codex "${args[@]}" "$@"
+    run_client_command codex client_env codex "${args[@]}" "$@"
   fi
 }
 
@@ -143,23 +870,49 @@ restore_terminal() {
 }
 
 launch_provider() {
+  run_preflight_or_die
   local p; p=$(get_provider)
   trap restore_terminal EXIT INT TERM
+  if [ "$HARNESS_RUN_ACTIVE" -eq 1 ]; then
+    harness_log_event "$HARNESS_RUN_ID" "agent.launched" "launch" "harness_controller" "broke" "{\"provider\":\"$p\"}"
+  fi
   case "$p" in
     claude)
-      claude_env
-      start_gateway
-      claude "$@" ;;
+      local -a client_env
+      claude_env client_env
+      if [ "$(worker_route_mode)" != "provider_direct" ]; then
+        start_gateway
+      fi
+      run_client_command claude client_env claude "$@" ;;
     codex)
       launch_codex "$@" ;;
     gemini)
-      load_env
-      gemini "$@" ;;
+      local -a client_env
+      gemini_env client_env
+      run_client_command gemini client_env gemini "$@" ;;
     *)
       echo "[broke] unknown provider: $p — falling back to claude"
-      claude_env; start_gateway; claude "$@" ;;
+      local -a client_env
+      claude_env client_env
+      start_gateway
+      run_client_command claude client_env claude "$@" ;;
   esac
+  local client_rc=$?
+  if [ "$HARNESS_RUN_ACTIVE" -eq 1 ]; then
+    local checkpoint_id verdict categories
+    checkpoint_id="$(collect_harness_checkpoint_artifact)"
+    if [ "$client_rc" -eq 0 ]; then
+      verdict="ACCEPT"
+      categories='[]'
+    else
+      verdict="RETRY_NARROW"
+      categories='["runtime_failure"]'
+    fi
+    harness_log_event "$HARNESS_RUN_ID" "verdict.issued" "review" "harness_controller" "broke" "{\"checkpoint_id\":\"$checkpoint_id\",\"verdict\":\"$verdict\"}"
+    complete_harness_run "$verdict" "$categories" "$checkpoint_id"
+  fi
   restore_terminal
+  return "$client_rc"
 }
 
 cmd_provider() {
@@ -263,7 +1016,6 @@ case "${1:-}" in
       fallback)
         [ -z "${3:-}" ] && { echo "  Usage: broke team fallback <team> <slot> <fb1> [fb2...]"; exit 1; }
         [ -z "${4:-}" ] && { echo "  Usage: broke team fallback <team> <slot> <fb1> [fb2...]"; exit 1; }
-        [ -z "${5:-}" ] && { echo "  Usage: broke team fallback <team> <slot> <fb1> [fb2...]"; exit 1; }
         python3 "$DIR/bin/_mapping.py" team-fallback "${@:3}" ;;
       access)
         [ -z "${3:-}" ] && { echo "  Usage: broke team access <team> [--slots s1,s2] [--rpm N] [--tpm N]"; exit 1; }
@@ -274,7 +1026,7 @@ case "${1:-}" in
         echo "  broke team load <name>                         load a team and restart gateway"
         echo "  broke team list                                show all saved teams"
         echo "  broke team delete <name>                       remove a team"
-        echo "  broke team fallback <t> <slot> <fb...>         set fallback chain for a slot"
+        echo "  broke team fallback <t> <slot> <fb...>         set backend-scoped fallback chain"
         echo "  broke team access <t> [--slots s] [--rpm N]    set access policy on a team"
         echo ""
         ;;
@@ -330,9 +1082,28 @@ case "${1:-}" in
     exit 0 ;;
   fallback)
     ensure_mapping
-    [ -z "${2:-}" ] && { echo "  Usage: broke fallback <slot> <fb1> [fb2...]"; exit 1; }
-    [ -z "${3:-}" ] && { echo "  Usage: broke fallback <slot> <fb1> [fb2...]"; exit 1; }
+    if [ "${2:-}" = "policy" ]; then
+      python3 "$DIR/bin/_mapping.py" fallback-policy "${@:3}"
+      exit 0
+    fi
+    [ -z "${2:-}" ] && { echo "  Usage: broke fallback <slot> [fb1] [fb2...]"; exit 1; }
     python3 "$DIR/bin/_mapping.py" fallback "${@:2}" && restart_gateway
+    exit 0 ;;
+  key-policy)
+    ensure_mapping
+    python3 "$DIR/bin/_mapping.py" key-policy "${@:2}"
+    exit 0 ;;
+  key-state)
+    ensure_mapping
+    python3 "$DIR/bin/_mapping.py" key-state "${@:2}"
+    exit 0 ;;
+  model-policy)
+    ensure_mapping
+    python3 "$DIR/bin/_mapping.py" model-policy "${@:2}"
+    exit 0 ;;
+  model-state)
+    ensure_mapping
+    python3 "$DIR/bin/_mapping.py" model-state "${@:2}"
     exit 0 ;;
   doctor)
     python3 "$DIR/bin/_mapping.py" doctor
@@ -397,26 +1168,15 @@ case "${1:-}" in
     python3 "$DIR/bin/_mapping.py" probe "$2"
     exit 0 ;;
   mode)
-    env_claude="$DIR/.env.claude"
     case "${2:-}" in
       cli)
-        touch "$env_claude"
-        if grep -q 'BROKE_MODE' "$env_claude" 2>/dev/null; then
-          sed -i "s|export BROKE_MODE=.*|export BROKE_MODE=\"1\"|" "$env_claude"
-        else
-          echo 'export BROKE_MODE="1"' >> "$env_claude"
-        fi
+        set_claude_env_export "BROKE_MODE" "1"
         echo "[mode] 1 · CLI agent" ;;
       route)
-        touch "$env_claude"
-        if grep -q 'BROKE_MODE' "$env_claude" 2>/dev/null; then
-          sed -i "s|export BROKE_MODE=.*|export BROKE_MODE=\"0\"|" "$env_claude"
-        else
-          echo 'export BROKE_MODE="0"' >> "$env_claude"
-        fi
+        set_claude_env_export "BROKE_MODE" "0"
         echo "[mode] 0 · app router" ;;
       "")
-        broke_mode=$(grep -oP '(?<=BROKE_MODE=")[^"]+' "$env_claude" 2>/dev/null || echo "")
+        broke_mode="$(get_claude_env_export "BROKE_MODE")"
         if [ "$broke_mode" = "1" ]; then
           echo "[mode] 1 · CLI agent"
         elif [ "$broke_mode" = "0" ]; then
@@ -428,6 +1188,106 @@ case "${1:-}" in
         echo "  Usage: broke mode [cli|route]"
         echo "         cli   = CLI agent router"
         echo "         route = app router" ;;
+    esac
+    exit 0 ;;
+  harness)
+    case "${2:-}" in
+      run)
+        shift 2
+        provider_override=""
+        policy_override="$(get_claude_env_export "BROKE_HARNESS_MODE")"
+        risk_override="medium"
+        sandbox_override="$(get_sandbox_profile)"
+        allowed_paths="$PWD:$DIR"
+        worker_route_override="broke_router"
+        credential_source_override="broke_managed"
+        elevated_override=0
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --provider) provider_override="${2:-}"; shift 2 ;;
+            --policy) provider_override="${provider_override}"; policy_override="${2:-}"; shift 2 ;;
+            --risk) risk_override="${2:-}"; shift 2 ;;
+            --sandbox) sandbox_override="${2:-}"; shift 2 ;;
+            --allow-path) allowed_paths="${allowed_paths}:${2:-}"; shift 2 ;;
+            --worker-route) worker_route_override="${2:-}"; shift 2 ;;
+            --credential-source) credential_source_override="${2:-}"; shift 2 ;;
+            --elevated) elevated_override=1; shift ;;
+            --) shift; break ;;
+            *) break ;;
+          esac
+        done
+        [ -z "$policy_override" ] && policy_override="off"
+        case "$worker_route_override" in
+          broke_router|provider_direct) ;;
+          *)
+            echo "[harness] invalid worker route: $worker_route_override"
+            echo "           valid: broke_router provider_direct"
+            exit 1
+            ;;
+        esac
+        if [ "$worker_route_override" = "provider_direct" ]; then
+          [ -z "$credential_source_override" ] && credential_source_override="provider_managed"
+        else
+          credential_source_override="broke_managed"
+        fi
+        [ -n "$provider_override" ] && set_provider "$provider_override"
+        BROKE_SANDBOX_PROFILE="$sandbox_override"
+        register_harness_run "$(get_provider)" "$policy_override" "$risk_override" "$sandbox_override" "$PWD" "$allowed_paths" "$worker_route_override" "$credential_source_override" "$elevated_override" || {
+          echo "[harness] failed to register run"
+          exit 1
+        }
+        if [ "$worker_route_override" = "provider_direct" ] && [ "$elevated_override" -ne 1 ]; then
+          harness_log_event "$HARNESS_RUN_ID" "authority.expansion_denied" "launch" "policy_engine" "broke" \
+            "{\"role\":\"worker\",\"attempted_inference_path\":\"provider_direct\",\"attempted_credential_source\":\"$credential_source_override\",\"target_plane\":\"agent_runtime\",\"reason\":\"requires operator elevation\"}"
+          complete_harness_run "BLOCK" '["authority_expansion_denied"]'
+          echo "[harness] provider_direct worker runs require --elevated"
+          exit 1
+        fi
+        if [ "$worker_route_override" = "provider_direct" ]; then
+          harness_log_event "$HARNESS_RUN_ID" "model_route.changed" "launch" "harness_controller" "broke" \
+            "{\"role\":\"worker\",\"newInferencePath\":\"provider_direct\",\"credentialSource\":\"$credential_source_override\",\"changedBy\":\"operator\",\"reason\":\"harness run flag\"}"
+          harness_log_event "$HARNESS_RUN_ID" "credential_lease.issued" "launch" "harness_controller" "broke" \
+            "{\"role\":\"worker\",\"credential_source\":\"$credential_source_override\",\"injected_into\":\"agent_runtime\",\"provider\":\"$(get_provider)\"}"
+        fi
+        echo "[harness] run $HARNESS_RUN_ID"
+        echo "[harness] policy=$HARNESS_POLICY_PROFILE risk=$HARNESS_RISK_TIER sandbox=$sandbox_override provider=$(get_provider) worker=$worker_route_override"
+        launch_provider "$@"
+        exit $?
+        ;;
+      set)
+        [ -z "${3:-}" ] && { echo "  Usage: broke harness set <off|throughput|balanced|high_assurance>"; exit 1; }
+        set_claude_env_export "BROKE_HARNESS_MODE" "$3"
+        python3 "$DIR/bin/_mapping.py" harness set "$3"
+        ;;
+      evaluate)
+        python3 "$DIR/bin/_mapping.py" harness evaluate "${@:3}"
+        ;;
+      "")
+        current_harness="$(get_claude_env_export "BROKE_HARNESS_MODE")"
+        if [ -n "$current_harness" ]; then
+          echo "[harness] env=${current_harness}"
+        fi
+        python3 "$DIR/bin/_mapping.py" harness status
+        ;;
+      *)
+        python3 "$DIR/bin/_mapping.py" harness "${@:2}"
+        ;;
+    esac
+    exit 0 ;;
+  sandbox)
+    case "${2:-}" in
+      set)
+        [ -z "${3:-}" ] && { echo "  Usage: broke sandbox set <normal|hardened|strict>"; exit 1; }
+        set_sandbox_profile "$3"
+        ;;
+      "")
+        current_profile="$(get_sandbox_profile)"
+        current_provider="$(get_provider)"
+        echo "[sandbox] $current_profile ($(sandbox_network_policy "$current_profile" "$current_provider"))"
+        ;;
+      *)
+        echo "  Usage: broke sandbox [set <normal|hardened|strict>]"
+        ;;
     esac
     exit 0 ;;
   provider) shift; cmd_provider "$@"; exit 0 ;;
@@ -455,13 +1315,21 @@ case "${1:-}" in
       echo "  [gateway]  stopped"
     fi
     echo "  [provider] $(get_provider)"
-    broke_mode=$(grep -oP '(?<=BROKE_MODE=")[^"]+' "$DIR/.env.claude" 2>/dev/null || echo "")
+    current_provider="$(get_provider)"
+    current_profile="$(get_sandbox_profile)"
+    echo "  [sandbox]  $current_profile ($(sandbox_network_policy "$current_profile" "$current_provider"))"
+    broke_mode="$(get_claude_env_export "BROKE_MODE")"
+    harness_mode="$(get_claude_env_export "BROKE_HARNESS_MODE")"
     if [ "$broke_mode" = "1" ]; then
       echo "  [mode]     1 · CLI agent"
     elif [ "$broke_mode" = "0" ]; then
       echo "  [mode]     0 · app router"
     else
       echo "  [mode]     unset"
+    fi
+    echo "  [harness]  ${harness_mode:-off}"
+    if [ "$HARNESS_RUN_ACTIVE" -eq 1 ]; then
+      echo "  [worker]   $HARNESS_WORKER_ROUTE / $HARNESS_WORKER_CREDENTIAL_SOURCE"
     fi
     echo ""
     exit 0 ;;
@@ -497,6 +1365,16 @@ case "${1:-}" in
     echo "  broke team load <name>       load a team and restart gateway"
     echo "  broke team list              show all saved teams"
     echo "  broke team delete <name>     remove a team"
+    echo "  broke fallback policy [--team [name]]  show live/team fallback policies"
+    echo "  broke key-policy             show live key rotation policy"
+    echo "  broke key-state              show live key health/cooldown state"
+    echo "  broke model-policy           show live lane model policy"
+    echo "  broke model-state            show live model health/cooldown state"
+    echo "  broke harness                show harness mode and last verdict"
+    echo "  broke harness run            launch provider under mediated harness runtime"
+    echo "  broke harness set <mode>     set harness mode: off/throughput/balanced/high_assurance"
+    echo "  broke harness evaluate       compute a harness verdict from current evidence"
+    echo "  broke sandbox [set <p>]      client launch profile: normal/hardened/strict"
     echo "  broke profile new <n> <t>    create a client profile"
     echo "  broke profile load <name>    apply profile + restart gateway"
     echo "  broke profile list           show all profiles"
@@ -526,6 +1404,12 @@ case "${1:-}" in
     echo "  broke              → launch claude with gateway"
     echo "  broke list         → show routing table"
     echo "  broke swap         → remap a model interactively"
+    echo "  broke fallback     → set backend fallback policy"
+    echo "  broke key-policy   → live key rotation policy"
+    echo "  broke model-policy → live lane model policy"
+    echo "  broke harness      → show/set harness mode and evaluate verdicts"
+    echo "  broke harness run  → launch a harnessed agent run with runtime mediation"
+    echo "  broke sandbox      → show/set client sandbox profile"
     echo "  broke start/stop   → gateway control"
     echo "  broke restart      → reload config + restart"
     echo "  broke status       → gateway status"
