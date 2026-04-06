@@ -1,15 +1,15 @@
 # STATE.md
 
 **Project:** BrokeLLM Brownfield Audit
-**Current Phase:** Phase 6 (Drift Analysis & Failure Classification & Risk Register)
-**Status:** Phase 6 executed manually; ready to plan Phase 7
+**Current Phase:** Phase 8 (Artifact Assembly & Summary)
+**Status:** Phase 8 executed manually; brownfield audit deliverables assembled
 
 ## Project Reference
 
 See: .planning/PROJECT.md (updated 2026-04-04)
 
 **Core value:** Evidence over declaration — every claimed capability must be traced to code, tests, and runtime behavior; unverifiable claims must be downgraded, proven claims validated, and gaps documented with structured remediation.
-**Current focus:** Phase 7: Final Truth Adjudication & Remediation Plan
+**Current focus:** Milestone complete pending final commit/push
 
 ## Workflow Settings
 
@@ -33,12 +33,12 @@ See: .planning/PROJECT.md (updated 2026-04-04)
 | 4 | Function Inventory & Test Review | Complete |
 | 5 | Invariants Definition & Kill Test Design | Complete |
 | 6 | Drift Analysis & Failure Classification & Risk Register | Complete |
-| 7 | Final Truth Adjudication & Remediation Plan | Planned |
-| 8 | Artifact Assembly & Summary | Planned |
+| 7 | Final Truth Adjudication & Remediation Plan | Complete |
+| 8 | Artifact Assembly & Summary | Complete |
 
 ## Next Action
 
-Plan Phase 7: `gsd:plan-phase 7`
+Review, commit, and close out the brownfield audit milestone
 
 ## Notes
 
@@ -58,3 +58,10 @@ Plan Phase 7: `gsd:plan-phase 7`
 - Phase 6 produced:
   - `.planning/brownfield-audit/DRIFT_MAP.yaml`
   - `.planning/brownfield-audit/RISK_REGISTER.yaml`
+- Phase 7 produced:
+  - `.planning/brownfield-audit/TRUTH.yaml` final adjudication update
+  - `.planning/brownfield-audit/REMEDIATION_PLAN.md`
+- Phase 8 produced:
+  - `.planning/brownfield-audit/SYSTEM_SURFACE_MAP.md`
+  - `.planning/brownfield-audit/VERIFICATION.md`
+  - `.planning/brownfield-audit/SUMMARY.md`

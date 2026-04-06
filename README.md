@@ -30,7 +30,7 @@ Most CLI coding tools assume stable access to expensive frontier models.
 
 ## The Solution
 
-BrokeLLM puts a **local control plane** in front of multiple providers. Clients keep speaking in abstract slots — `sonnet`, `opus`, `haiku`, `default`, `subagent` — while you control which provider and model actually answers.
+BrokeLLM puts a **local control plane** in front of multiple providers. Clients keep speaking in stable lanes — Claude-style (`sonnet`, `opus`, `haiku`, `custom`, `subagent`), Codex-style (`gpt54`, `gpt54mini`, `gpt53codex`, `gpt52codex`, `gpt52`, `gpt51codexmax`, `gpt51codexmini`) — while you control which provider and model actually answers.
 
 ![BrokeLLM live operations](./docs/assets/brokellm-live-operations.png)
 
@@ -103,7 +103,8 @@ The point: **clients keep speaking in slots. You control what actually answers.*
 
 ### 🔀 Routing Control
 
-- Claude-style slot routing: `sonnet`, `opus`, `haiku`, `default`, `subagent`
+- Claude-style lanes: `sonnet`, `opus`, `haiku`, `custom`, `subagent`
+- Codex-style lanes: `gpt54`, `gpt54mini`, `gpt53codex`, `gpt52codex`, `gpt52`, `gpt51codexmax`, `gpt51codexmini`
 - Interactive route switching with `broke swap`
 - Team and profile presets for reusable configurations
 - Fallback chain support per slot
@@ -133,7 +134,7 @@ The point: **clients keep speaking in slots. You control what actually answers.*
 
 ### 🧠 Live Model Orchestration
 
-- Per-lane live model policy for `sonnet`, `opus`, `haiku`, `default`, and `subagent`
+- Per-lane live model policy across Claude, Codex, and semantic lane families
 - New requests can switch models without restarting the client session
 - Per-model health state: `healthy`, `cooldown`, `blocked`, `incompatible`
 - Model policy changes are generation-tracked and applied only to new requests
@@ -150,6 +151,15 @@ The point: **clients keep speaking in slots. You control what actually answers.*
 - Persists last verdict and categories for later inspection
 - Caches stable role doctrine, normalized evidence packets, and repeat-review verdicts to reduce prompt drift and no-op re-review churn
 - `broke harness run` turns BrokeLLM into the launch boundary for a mediated CLI-agent run with per-run ledgering and shimmed command observation
+
+### 🔌 ACP Facade
+
+- `broke acp-server` exposes a Broke-owned ACP-compatible stdio control surface for harness mode by default
+- Gemini can sit behind native ACP-style transport semantics
+- Claude runs as a persistent `stream-json` CLI session normalized behind the Broke ACP facade
+- Codex runs as a persistent `app-server` JSON-RPC session normalized behind the Broke ACP facade
+- OpenRouter, Groq, Cerebras, and local models run as headless logical ACP lanes with persistent Broke-owned session state and ephemeral provider calls
+- Session truth, cancellation, and lane-result schema stay Broke-owned even when provider runtimes differ
 
 ### 🔒 Local Security
 
@@ -253,7 +263,7 @@ broke team load <name>
 broke team list
 broke team delete <name>
 broke team fallback <team> <slot> <fb1> [fb2...]
-broke team access <team> [--slots sonnet,haiku] [--rpm N] [--tpm N]
+broke team access <team> [--slots sonnet,gpt54] [--rpm N] [--tpm N]
 ```
 
 > `0` means unlimited for `rpm` and `tpm`. Omitted values mean "leave unchanged."
@@ -261,7 +271,7 @@ broke team access <team> [--slots sonnet,haiku] [--rpm N] [--tpm N]
 ### Profiles
 
 ```bash
-broke profile new <name> <team> [--desc "text"] [--slots sonnet,haiku] [--rpm N] [--tpm N]
+broke profile new <name> <team> [--desc "text"] [--slots sonnet,gpt54] [--rpm N] [--tpm N]
 broke profile load <name>
 broke profile list
 broke profile delete <name>
@@ -303,7 +313,7 @@ Policy changes apply to new requests without forcing you to exit the current cli
 
 ```bash
 broke model-policy
-broke model-policy sonnet --mode priority_order --cooldown 60 --retries 2 --order OR/Step-3.5,Cerebras/GPT-OSS-120B
+broke model-policy gpt54 --mode priority_order --cooldown 60 --retries 2 --order OR/Qwen-3.6+,Groq/Kimi-K2
 broke model-state
 broke model-state set "Cerebras/GPT-OSS-120B" cooldown
 ```
@@ -332,6 +342,7 @@ Network policy by profile:
 
 ```bash
 broke harness
+broke harness checklist
 broke harness run --policy balanced -- --help
 broke harness set throughput
 broke harness set balanced
@@ -342,6 +353,17 @@ broke harness evaluate --task "fix fallback routing" --diff "bin/_mapping.py cha
 
 Harness mode is orthogonal to `cli` vs `router` mode. It does not replace routing. It adds a runtime decision layer on top of deterministic checks and optional worker/verifier/adversary verdict inputs.
 
+The harness now persists review-lane control-plane state, not just final verdict summaries:
+
+- durable `worker` / `verifier` / `adversary` lane records
+- logical lane session ids independent of backend runtime lifetime
+- typed evidence artifacts for task, diff, tests, commands, policy events, and retry history
+- explicit observation vs inference separation in evidence packets
+- durable per-lane verdict contributions
+- degraded review-lane policy as part of verdict algebra
+
+Use `broke harness checklist` to inspect the current implementation checklist from the CLI, or open `broke dashboard` to inspect lane health, checklist progress, and last lane contributions visually.
+
 `broke harness run` is the first mediated-runtime slice. It registers a `run_id`, builds a per-run env plan, prepends harness shims for key tools, writes an append-only event ledger under `.runtime/harness/<run_id>/events.jsonl`, and opens a completion checkpoint when the launched client exits.
 
 Spec docs:
@@ -351,16 +373,21 @@ Spec docs:
 - [Harness Core](./docs/harness/CORE.md)
 - [Harness Code Profile](./docs/harness/CODE.md)
 - [Harness GSD Overlay](./docs/harness/GSD.md)
+- [Harness Lane Checklist](./docs/harness/LANE-CHECKLIST.md)
+- [Harness ACP Lane Spec](./docs/harness/ACP-LANE-SPEC.md)
+- [Harness ACP Hardening](./docs/harness/ACP-HARDENING.md)
 
 Worker lane options:
 
 - default: `broke_router` with `broke_managed` credentials
 - elevated option: `provider_direct` with `provider_managed` credentials for the worker lane
+- Gemini surface-direct option: `client_direct` with `provider_managed` credentials for harnessing Gemini CLI around BrokeLLM rather than through it
 
 Example:
 
 ```bash
 broke harness run --worker-route provider_direct --elevated --provider claude -- --help
+broke harness run --worker-route client_direct --provider gemini -- --help
 ```
 
 Provider-direct worker runs are explicit on purpose. They are treated as authority expansion and are denied unless `--elevated` is present.
@@ -395,8 +422,8 @@ broke provider swap [claude|codex|gemini]
 
 ```bash
 broke doctor
-broke explain sonnet
-broke route sonnet
+broke explain gpt54
+broke route gpt54
 ```
 
 Use these together to isolate different failure classes:
@@ -404,8 +431,8 @@ Use these together to isolate different failure classes:
 | Command | What It Tells You |
 | --- | --- |
 | `broke doctor` | Whether the gateway and upstream backends are healthy |
-| `broke explain sonnet` | Configured slot, backend, health view, and fallback chain |
-| `broke route sonnet` | What would actually be selected for that slot right now |
+| `broke explain gpt54` | Configured slot, backend, health view, and fallback chain |
+| `broke route gpt54` | What would actually be selected for that slot right now |
 
 This separates: provider failure / bad mapping state / access-policy blocking / fallback activation risk.
 
@@ -413,20 +440,23 @@ This separates: provider failure / bad mapping state / access-policy blocking / 
 
 ## Example: Routing Across Providers
 
-Route `sonnet` through GitHub Models, `haiku` through OpenRouter, inspect, save:
+Route `gpt54` through one provider lane, `haiku` through another, inspect, save:
 
 ```bash
 broke list
-broke explain sonnet
-broke route sonnet
+broke explain gpt54
+broke route gpt54
 broke team save work
 ```
 
 Create a restricted profile for a production app:
 
 ```bash
-broke profile new myapp work --desc "Production app" --slots sonnet --rpm 30
+broke profile new myapp work --desc "Production app" --slots gpt54 --rpm 30
+broke connect --profile myapp
 ```
+
+Programmatic clients can select a profile explicitly with `X-Broke-Profile: myapp` when using the global gateway token. Profile-bound tokens created with `broke connect --profile ...` are pinned to that profile and reject mismatched `X-Broke-Profile` overrides.
 
 ---
 
@@ -603,21 +633,22 @@ Truth-boundary specification is in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 Issues and improvements are welcome, especially around:
 
-- **Provider presets** — new backends and example configs
-- **Safer install paths** — better bootstrap and dependency handling
-- **Observability** — richer health and drift reporting
-- **Test coverage** — import/export, snapshot, and edge-case flows
-- **Documentation** — constrained-budget and offline workflows
+- **Harness runtime contracts** — tighten ACP lane behavior, PTY supervision, and adapter truth boundaries
+- **Execution hardening** — improve shim integrity, sandboxing, and hostile-runtime resistance
+- **Operator visibility** — better dashboard views, lane health, and run-channel observability
+- **Cross-provider mediation** — Claude, Codex, and Gemini behavior parity behind the Broke harness facade
+- **Documentation** — harness architecture, ACP semantics, and operator workflows
 
 ---
 
 ## Project Status
 
-**Current milestone:** control-plane correctness baseline.
+**Current milestone:** harness-oriented execution boundary and ACP/runtime mediation.
 
 Suggested next steps:
-- Add tests around import/export and snapshot flows
-- Cut a release tag after checkpointing the current state
+- stabilize the harness runtime contract across Claude, Codex, and Gemini
+- harden PTY supervision, lane health, and ACP adapter behavior
+- keep documentation aligned with the harness-first development direction
 
 ---
 

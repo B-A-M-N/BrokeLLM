@@ -25,10 +25,24 @@ ROTATION_POLICY = DIR / ".rotation.json"
 KEY_STATE = DIR / ".key_state.json"
 ROTATION_LOG = DIR / ".rotation.log"
 MAPPING = DIR / ".mapping.json"
+TEAMS = DIR / ".teams.json"
+PROFILES = DIR / ".profiles.json"
+CLIENT_BINDINGS = DIR / ".client_bindings.json"
 MODEL_POLICY = DIR / ".model_policy.json"
 MODEL_STATE = DIR / ".model_state.json"
 
-VALID_SLOTS = ["sonnet", "opus", "haiku", "default", "subagent"]
+CLAUDE_SLOTS = ["sonnet", "opus", "haiku", "custom"]
+SEMANTIC_SLOTS = ["subagent"]
+CODEX_SLOTS = [
+    "gpt54",
+    "gpt54mini",
+    "gpt53codex",
+    "gpt52codex",
+    "gpt52",
+    "gpt51codexmax",
+    "gpt51codexmini",
+]
+VALID_SLOTS = CLAUDE_SLOTS + SEMANTIC_SLOTS + CODEX_SLOTS
 
 EXCLUDED_RESPONSE_HEADERS = {
     "connection",
@@ -78,6 +92,21 @@ def load_mapping():
     return read_json(MAPPING, {})
 
 
+def load_teams():
+    return read_json(TEAMS, {})
+
+
+def load_profiles():
+    return read_json(PROFILES, {})
+
+
+def load_client_bindings():
+    data = read_json(CLIENT_BINDINGS, {"tokens": {}})
+    if "tokens" not in data:
+        data["tokens"] = {}
+    return data
+
+
 def load_policy():
     policy = read_json(ROTATION_POLICY, {})
     if "generation" not in policy:
@@ -112,6 +141,56 @@ def load_model_state():
     if "lanes" not in state:
         state["lanes"] = {}
     return state
+
+
+def slot_allowed(slot, mapping):
+    access = mapping.get("_access", {})
+    allowed_slots = access.get("allowed_slots")
+    if allowed_slots is None:
+        return True
+    return slot in allowed_slots
+
+
+def team_mapping(team_name, teams=None):
+    teams = teams or load_teams()
+    if team_name not in teams:
+        return None
+    team = teams[team_name]
+    if "slots" in team:
+        slots = team.get("slots", {})
+        fallbacks = team.get("fallbacks", {})
+        backend_fallbacks = team.get("backend_fallbacks", {})
+        lane_fallback_targets = team.get("lane_fallback_targets", {})
+        access = team.get("access", {})
+    else:
+        slots, fallbacks, backend_fallbacks, lane_fallback_targets, access = team, {}, {}, {}, {}
+    mapping = dict(slots)
+    if fallbacks:
+        mapping["_fallbacks"] = fallbacks
+    if backend_fallbacks:
+        mapping["_backend_fallbacks"] = backend_fallbacks
+    if lane_fallback_targets:
+        mapping["_lane_fallback_targets"] = lane_fallback_targets
+    if access:
+        mapping["_access"] = access
+    return mapping
+
+
+def effective_mapping_for_profile(profile_name, profiles=None, teams=None):
+    profiles = profiles or load_profiles()
+    teams = teams or load_teams()
+    profile = profiles.get(profile_name)
+    if not profile:
+        return None
+    mapping = team_mapping(profile.get("team", ""), teams=teams)
+    if mapping is None:
+        return None
+    access = profile.get("access", {})
+    if access:
+        merged_access = dict(mapping.get("_access", {}))
+        merged_access.update(access)
+        mapping["_access"] = merged_access
+    return mapping
 
 
 def log_event(event):
@@ -241,18 +320,53 @@ def infer_slot(model_label, mapping):
     return None
 
 
+def infer_slot_from_active_mapping_identity(model_label, mapping):
+    if not model_label:
+        return None
+    normalized = str(model_label).strip().lower()
+    for slot in VALID_SLOTS:
+        entry = mapping.get(slot)
+        if not entry:
+            continue
+        model = str(entry.get("model", "")).strip().lower()
+        if model and normalized == model:
+            return slot
+        provider = str(entry.get("provider", "")).strip().lower()
+        if provider and model and normalized == f"{provider}/{model}":
+            return slot
+    return None
+
+
 def infer_slot_from_client_model(model_label):
     if not model_label:
         return None
     normalized = str(model_label).strip().lower()
+    codex_slot_aliases = {
+        "gpt54": "gpt54",
+        "gpt-5.4": "gpt54",
+        "gpt54mini": "gpt54mini",
+        "gpt-5.4-mini": "gpt54mini",
+        "gpt53codex": "gpt53codex",
+        "gpt-5.3-codex": "gpt53codex",
+        "gpt52codex": "gpt52codex",
+        "gpt-5.2-codex": "gpt52codex",
+        "gpt52": "gpt52",
+        "gpt-5.2": "gpt52",
+        "gpt51codexmax": "gpt51codexmax",
+        "gpt-5.1-codex-max": "gpt51codexmax",
+        "gpt51codexmini": "gpt51codexmini",
+        "gpt-5.1-codex-mini": "gpt51codexmini",
+    }
+    if normalized in codex_slot_aliases:
+        return codex_slot_aliases[normalized]
     if normalized.startswith("claude-sonnet") or "sonnet" in normalized:
         return "sonnet"
     if normalized.startswith("claude-opus") or "opus" in normalized:
         return "opus"
     if normalized.startswith("claude-haiku") or "haiku" in normalized:
         return "haiku"
-    if normalized == "default":
-        return "default"
+    if normalized == "custom" or normalized.startswith("claude-custom"):
+        return "custom"
     if normalized == "subagent":
         return "subagent"
     return None
@@ -262,14 +376,22 @@ def resolve_requested_model(model_label, deployments_map, mapping):
     if not model_label:
         return None, None
     if model_label in deployments_map:
-        return model_label, infer_slot(model_label, mapping)
+        slot = infer_slot(model_label, mapping)
+        if slot and not slot_allowed(slot, mapping):
+            return None, None
+        return model_label, slot
     slot = infer_slot(model_label, mapping)
-    if slot and mapping.get(slot):
+    if slot and mapping.get(slot) and slot_allowed(slot, mapping):
         label = mapping[slot].get("label")
         if label in deployments_map:
             return label, slot
     slot = infer_slot_from_client_model(model_label)
-    if slot and mapping.get(slot):
+    if slot and mapping.get(slot) and slot_allowed(slot, mapping):
+        label = mapping[slot].get("label")
+        if label in deployments_map:
+            return label, slot
+    slot = infer_slot_from_active_mapping_identity(model_label, mapping)
+    if slot and mapping.get(slot) and slot_allowed(slot, mapping):
         label = mapping[slot].get("label")
         if label in deployments_map:
             return label, slot
@@ -403,9 +525,9 @@ def mark_lane_model_use(slot, model_label):
         atomic_write_json(MODEL_STATE, state)
 
 
-def prepare_candidates(model_label):
+def prepare_candidates(model_label, mapping=None):
     deployments_map = load_deployments()
-    mapping = load_mapping()
+    mapping = mapping or load_mapping()
     resolved_label, slot = resolve_requested_model(model_label, deployments_map, mapping)
     if resolved_label is None:
         return None, None, None, None, None
@@ -461,6 +583,64 @@ def classify_error(status_code, body_text):
 class ProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    def _presented_client_token(self):
+        auth = self.headers.get("Authorization", "")
+        x_api_key = self.headers.get("x-api-key", "") or self.headers.get("api-key", "")
+        if auth.startswith("Bearer "):
+            return auth[len("Bearer "):]
+        return x_api_key
+
+    def _selected_profile_name(self):
+        requested_profile = (self.headers.get("X-Broke-Profile", "") or "").strip()
+        token = ProxyHandler._presented_client_token(self)
+        bindings = load_client_bindings().get("tokens", {})
+        bound = bindings.get(token, {})
+        bound_profile = str(bound.get("profile", "")).strip()
+        if bound_profile and requested_profile and requested_profile != bound_profile:
+            return None, "bound_token_profile_mismatch"
+        if requested_profile:
+            return requested_profile, "header"
+        if bound_profile:
+            return bound_profile, "token_binding"
+        return "", "default"
+
+    def _request_mapping(self):
+        profile_name, source = ProxyHandler._selected_profile_name(self)
+        if not profile_name:
+            if source == "bound_token_profile_mismatch":
+                return None, None, source
+            return load_mapping(), "", source
+        mapping = effective_mapping_for_profile(profile_name)
+        if mapping is None:
+            return None, profile_name, "unknown_profile"
+        return mapping, profile_name, source
+
+    def _filter_models_outcome(self, outcome, mapping, profile_name=""):
+        if outcome.get("status") != 200:
+            return outcome
+        try:
+            payload = json.loads(outcome["body"].decode())
+        except Exception:
+            return outcome
+        data = payload.get("data")
+        if not isinstance(data, list):
+            return outcome
+        allowed_labels = {
+            entry.get("label")
+            for slot, entry in mapping.items()
+            if not slot.startswith("_") and slot_allowed(slot, mapping)
+        }
+        payload["data"] = [item for item in data if item.get("id") in allowed_labels]
+        filtered_body = json.dumps(payload).encode()
+        headers = [(k, v) for k, v in outcome["headers"] if k.lower() != "content-length"]
+        return {
+            "status": outcome["status"],
+            "reason": outcome["reason"],
+            "headers": headers,
+            "body": filtered_body,
+            "profile_name": profile_name,
+        }
+
     def _client_authorized(self):
         if any(self.path.startswith(prefix) for prefix in LOCAL_ONLY_PATH_PREFIXES):
             return is_loopback(self.client_address[0]), "local_health_only"
@@ -473,9 +653,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
             _clear_auth_failures(self.client_address[0] or "")
             return True, "no_client_token_configured"
 
-        auth = self.headers.get("Authorization", "")
-        x_api_key = self.headers.get("x-api-key", "") or self.headers.get("api-key", "")
-        if auth == f"Bearer {CLIENT_TOKEN}" or x_api_key == CLIENT_TOKEN:
+        presented = ProxyHandler._presented_client_token(self)
+        bindings = load_client_bindings().get("tokens", {})
+        if presented and presented in bindings:
+            _clear_auth_failures(self.client_address[0] or "")
+            return True, "bound_client_token_ok"
+        if presented and presented == CLIENT_TOKEN:
             _clear_auth_failures(self.client_address[0] or "")
             return True, "client_token_ok"
         throttled = _record_auth_failure(self.client_address[0] or "")
@@ -486,6 +669,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if not authorized:
             status = 429 if reason == "auth_rate_limited" else 401
             return self._send_proxy_error(status, reason)
+        request_mapping, request_profile, profile_source = ProxyHandler._request_mapping(self)
+        if request_mapping is None:
+            status = 401 if profile_source == "bound_token_profile_mismatch" else 400
+            return self._send_proxy_error(status, profile_source if profile_source != "unknown_profile" else f"unknown_profile: '{request_profile}'")
 
         body = self._read_request_body()
         if body is None:
@@ -494,16 +681,39 @@ class ProxyHandler(BaseHTTPRequestHandler):
         payload = None
         model_label = None
         content_type = self.headers.get("Content-Type", "")
+        transfer_encoding = self.headers.get("Transfer-Encoding", "")
+        declared_length = self.headers.get("Content-Length", "")
+        body_size = len(body) if body is not None else 0
+        parse_ok = False
         if body and "json" in content_type:
             try:
                 payload = json.loads(body.decode())
                 model_label = payload.get("model")
+                parse_ok = True
             except Exception:
                 payload = None
+                parse_ok = False
+
+        if self.path.startswith("/v1/responses"):
+            log_event({
+                "ts": now_ts(),
+                "event": "request_body",
+                "path": self.path,
+                "content_type": content_type,
+                "transfer_encoding": transfer_encoding,
+                "declared_content_length": declared_length,
+                "received_body_bytes": body_size,
+                "json_parse_ok": parse_ok,
+            })
+            if body and "json" in content_type and not parse_ok:
+                return self._send_proxy_error(
+                    400,
+                    "invalid_json_from_client: request body could not be parsed as JSON before routing",
+                )
 
         policy = model_policy = slot = candidate_groups = state = None
         if model_label:
-            policy, model_policy, slot, candidate_groups, state = prepare_candidates(model_label)
+            policy, model_policy, slot, candidate_groups, state = prepare_candidates(model_label, mapping=request_mapping)
 
         if model_label and not candidate_groups:
             return self._send_proxy_error(
@@ -516,6 +726,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 outcome = self._forward_once(body)
             except OSError as exc:
                 return self._send_proxy_error(503, f"upstream_unreachable: {exc}")
+            if self.path == "/v1/models":
+                outcome = self._filter_models_outcome(outcome, request_mapping, request_profile)
             return self._send_outcome(outcome, 0, "", 0, [])
 
         generation = policy.get("generation", 1)
@@ -657,9 +869,25 @@ class ProxyHandler(BaseHTTPRequestHandler):
         upstream = urlsplit(self.server.upstream_base)
         conn = http.client.HTTPConnection(upstream.hostname, upstream.port, timeout=60)
         path = self.path
-        headers = {k: v for k, v in self.headers.items() if k.lower() not in {"authorization", "x-api-key", "api-key"}}
+        # Strip hop-by-hop/request-framing headers before forwarding.
+        # We send a concrete bytes body, so upstream framing must be recalculated.
+        strip_headers = {
+            "authorization",
+            "x-api-key",
+            "api-key",
+            "content-length",
+            "transfer-encoding",
+            "connection",
+            "keep-alive",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "te",
+            "trailer",
+            "upgrade",
+            "expect",
+        }
+        headers = {k: v for k, v in self.headers.items() if k.lower() not in strip_headers}
         headers["Host"] = upstream.netloc
-        headers.pop("Content-Length", None)
         if INTERNAL_TOKEN:
             headers["Authorization"] = f"Bearer {INTERNAL_TOKEN}"
         if extra_headers:
@@ -721,6 +949,47 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _read_request_body(self):
+        transfer_encoding = (self.headers.get("Transfer-Encoding", "") or "").lower()
+        if "chunked" in transfer_encoding:
+            chunks = []
+            total = 0
+            while True:
+                size_line = self.rfile.readline(65537)
+                if not size_line:
+                    self._send_proxy_error(400, "invalid_chunked_body: missing_chunk_size")
+                    return None
+                try:
+                    size_token = size_line.strip().split(b";", 1)[0]
+                    chunk_size = int(size_token, 16)
+                except Exception:
+                    self._send_proxy_error(400, "invalid_chunked_body: bad_chunk_size")
+                    return None
+                if chunk_size < 0:
+                    self._send_proxy_error(400, "invalid_chunked_body: negative_chunk_size")
+                    return None
+                if chunk_size == 0:
+                    # Consume trailer headers (if any) until blank line.
+                    while True:
+                        trailer = self.rfile.readline(65537)
+                        if not trailer or trailer in (b"\r\n", b"\n"):
+                            break
+                    break
+                total += chunk_size
+                if total > MAX_REQUEST_BYTES:
+                    self._send_proxy_error(413, f"request_too_large: limit is {MAX_REQUEST_BYTES} bytes")
+                    return None
+                chunk = self.rfile.read(chunk_size)
+                if not chunk or len(chunk) != chunk_size:
+                    self._send_proxy_error(400, f"incomplete_request_body: expected_chunk={chunk_size} received={len(chunk) if chunk else 0}")
+                    return None
+                # Consume the CRLF after each chunk.
+                crlf = self.rfile.read(2)
+                if crlf != b"\r\n":
+                    self._send_proxy_error(400, "invalid_chunked_body: missing_chunk_terminator")
+                    return None
+                chunks.append(chunk)
+            return b"".join(chunks)
+
         if "Content-Length" not in self.headers:
             return b""
         try:
@@ -734,7 +1003,18 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if size > MAX_REQUEST_BYTES:
             self._send_proxy_error(413, f"request_too_large: limit is {MAX_REQUEST_BYTES} bytes")
             return None
-        return self.rfile.read(size)
+        # BaseHTTPRequestHandler input streams can yield short reads; keep
+        # reading until we have the full declared body or hit EOF.
+        chunks = []
+        remaining = size
+        while remaining > 0:
+            chunk = self.rfile.read(remaining)
+            if not chunk:
+                self._send_proxy_error(400, f"incomplete_request_body: expected={size} received={size - remaining}")
+                return None
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
 
     def do_GET(self):
         self._proxy_request()

@@ -3,6 +3,11 @@
 - [Core](./CORE.md): general harness runtime, independent of any workflow system
 - [Code](./CODE.md): coding-specific specialization and doctrine family on top of the core
 - [GSD](./GSD.md): workflow adapter/overlay family for GSD on top of core + code
+- [Hardening](./HARDENING.md): hostile-environment validation matrix and proof standard
+- [Lane Checklist](./LANE-CHECKLIST.md): persistent lane/session model, evidence contract split, and degraded review-lane requirements
+- [ACP Lane Spec](./ACP-LANE-SPEC.md): BrokeLLM-owned ACP session, event, runtime-binding, and lane-result contract
+- [PTY Supervisor Contract](./PTY-HARDENING.md): terminal supervision semantics, signal model, and lifecycle invariants
+- [Gemini ACP Acceptance](./GEMINI-ACP-ACCEPTANCE.md): promotion gate for Gemini as an ACP-backed node
 
 ## Clean Boundary
 

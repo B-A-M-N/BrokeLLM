@@ -485,3 +485,220 @@ truth_surfaces:
       - "The locked supply-chain mechanism exists."
       - "Current environment is not fully aligned with the locked expectation."
     provisional_classification: CONDITIONAL
+
+final_adjudication:
+  generated_at: "2026-04-04"
+  phase: 7
+  requirement_ref: FINAL-01
+  note: "FINAL-01 says 18 truth domains, but the requirement text explicitly lists 17. This artifact adjudicates the 17 listed domains."
+  domain_verdicts:
+    - domain: routing
+      final_verdict: VALID
+      dependent_truth_surfaces:
+        - routing_truth
+      dominant_risks:
+        - RISK-004
+      rationale: "Route identity normalization is centralized and route/explain agreement is strongly evidenced. Remaining execution-alignment uncertainty does not overturn dry-run routing truth itself."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::routing_truth
+        - .planning/brownfield-audit/FUNCTION_INVENTORY.md::Mapping Resolution And Route Identity
+
+    - domain: fallback_resolution
+      final_verdict: CONDITIONAL
+      dependent_truth_surfaces:
+        - fallback_resolution_truth
+      dominant_risks:
+        - RISK-004
+        - RISK-010
+      rationale: "Fallback chain resolution and display are implemented and observable, but live failover under induced backend failure remains only partially proven."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::fallback_resolution_truth
+        - .planning/brownfield-audit/KILL_TESTS.md::KT-05
+
+    - domain: observability
+      final_verdict: INVALID
+      dependent_truth_surfaces:
+        - health_truth
+        - launch_preflight_integrity_truth
+      dominant_risks:
+        - RISK-001
+      rationale: "The system currently exposes contradictory health truth across major observability surfaces: doctor disagrees with route/explain for the same live target. That is a direct observability failure, not just a proof gap."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::health_truth
+        - .planning/brownfield-audit/DRIFT_MAP.yaml::DRIFT-04
+
+    - domain: execution_alignment
+      final_verdict: CONDITIONAL
+      dependent_truth_surfaces:
+        - execution_alignment_truth
+      dominant_risks:
+        - RISK-004
+      rationale: "The execution chain is known and partially unit-tested, but actual forwarded upstream target alignment is still not runtime-proven end-to-end."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::execution_alignment_truth
+        - .planning/brownfield-audit/RISK_REGISTER.yaml::RISK-004
+
+    - domain: key_orchestration
+      final_verdict: CONDITIONAL
+      dependent_truth_surfaces:
+        - key_policy_truth
+        - key_state_truth
+      dominant_risks:
+        - RISK-005
+      rationale: "Key state persistence looks coherent and key policy generation is visible, but live generation isolation under concurrent requests remains unproven."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::key_policy_truth
+        - .planning/brownfield-audit/TRUTH.yaml::key_state_truth
+        - .planning/brownfield-audit/KILL_TESTS.md::KT-02
+
+    - domain: model_orchestration
+      final_verdict: CONDITIONAL
+      dependent_truth_surfaces:
+        - model_policy_truth
+        - model_state_truth
+      dominant_risks:
+        - RISK-005
+      rationale: "Model state and policy surfaces are mostly coherent, but request-time policy adoption and generation isolation remain only indirectly proven."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::model_policy_truth
+        - .planning/brownfield-audit/TRUTH.yaml::model_state_truth
+        - .planning/brownfield-audit/RISK_REGISTER.yaml::RISK-005
+
+    - domain: harness_authority
+      final_verdict: CONDITIONAL
+      dependent_truth_surfaces:
+        - harness_verdict_truth
+      dominant_risks:
+        - RISK-006
+        - RISK-007
+      rationale: "Authority-expansion denial is proven and durable events exist, but full verdict semantics across BLOCK/RETRY/ESCALATE remain only partially runtime-proven."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::harness_verdict_truth
+        - .planning/brownfield-audit/INVARIANTS.md::INV-04.2
+
+    - domain: credential_isolation
+      final_verdict: CONDITIONAL
+      dependent_truth_surfaces:
+        - credential_isolation_truth
+      dominant_risks:
+        - RISK-007
+      rationale: "Credential lane design and non-elevated provider-direct denial are real, but direct env-leak and bypass probing are deferred, so the boundary is not strong enough to mark VALID."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::credential_isolation_truth
+        - .planning/brownfield-audit/KILL_TESTS.md::KT-03
+        - .planning/brownfield-audit/KILL_TESTS.md::KT-04
+        - .planning/brownfield-audit/KILL_TESTS.md::KT-08
+
+    - domain: sandbox_runtime_boundary
+      final_verdict: CONDITIONAL
+      dependent_truth_surfaces:
+        - sandbox_runtime_boundary_truth
+      dominant_risks:
+        - RISK-008
+      rationale: "Strict-mode hardening is materially improved and some client-specific enforcement exists, but no live escape-resistance proof was executed in this audit."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::sandbox_runtime_boundary_truth
+        - .planning/brownfield-audit/KILL_TESTS.md::KT-11
+
+    - domain: supply_chain
+      final_verdict: CONDITIONAL
+      dependent_truth_surfaces:
+        - supply_chain_truth
+      dominant_risks:
+        - RISK-009
+      rationale: "The lockfile, mirror, and hash-bound mechanism exist, but current runtime package drift and unexpected .pth files contradict a fully trusted reproducible baseline."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::supply_chain_truth
+        - .planning/brownfield-audit/RISK_REGISTER.yaml::RISK-009
+
+    - domain: install_bootstrap
+      final_verdict: CONDITIONAL
+      dependent_truth_surfaces:
+        - launch_preflight_integrity_truth
+        - supply_chain_truth
+      dominant_risks:
+        - RISK-009
+      rationale: "Bootstrap and preflight are real and catch meaningful issues, but the observed runtime drift proves the install/runtime baseline is not fully clean or self-verifying."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::launch_preflight_integrity_truth
+        - .planning/brownfield-audit/TRUTH.yaml::supply_chain_truth
+
+    - domain: snapshot_restore
+      final_verdict: CONDITIONAL
+      dependent_truth_surfaces:
+        - snapshot_restore_truth
+      dominant_risks:
+        - RISK-003
+      rationale: "Snapshot and restore work for mapping state, but the actual scope is narrower than broad state-control expectations."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::snapshot_restore_truth
+        - .planning/brownfield-audit/RISK_REGISTER.yaml::RISK-003
+
+    - domain: freeze_enforcement
+      final_verdict: INVALID
+      dependent_truth_surfaces:
+        - freeze_enforcement_truth
+      dominant_risks:
+        - RISK-002
+      rationale: "Freeze currently guards only a narrow subset of mutation paths while implying broader control-plane protection. This is a direct mismatch between semantics and enforcement."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::freeze_enforcement_truth
+        - .planning/brownfield-audit/DRIFT_MAP.yaml::DRIFT-01
+        - .planning/brownfield-audit/DRIFT_MAP.yaml::DRIFT-02
+
+    - domain: client_integrations
+      final_verdict: CONDITIONAL
+      dependent_truth_surfaces:
+        - execution_alignment_truth
+        - sandbox_runtime_boundary_truth
+      dominant_risks:
+        - RISK-010
+      rationale: "Client support is clearly uneven: some paths are strong, some are experimental, and some are invalid. The domain is real, but not uniformly proven enough for VALID."
+      evidence_refs:
+        - .planning/brownfield-audit/INTEGRATION_MATRIX.yaml
+        - .planning/brownfield-audit/RISK_REGISTER.yaml::RISK-010
+
+    - domain: provider_integrations
+      final_verdict: CONDITIONAL
+      dependent_truth_surfaces:
+        - execution_alignment_truth
+        - supply_chain_truth
+      dominant_risks:
+        - RISK-010
+      rationale: "Provider breadth is real in the catalog and control plane, but maintained live proof depth varies significantly across providers."
+      evidence_refs:
+        - .planning/brownfield-audit/INTEGRATION_MATRIX.yaml
+        - .planning/brownfield-audit/DRIFT_MAP.yaml::DRIFT-10
+
+    - domain: truth_boundary_consistency
+      final_verdict: INVALID
+      dependent_truth_surfaces:
+        - routing_truth
+        - health_truth
+      dominant_risks:
+        - RISK-001
+      rationale: "The system cannot claim a consistent truth boundary while doctor and route/explain disagree on live health interpretation."
+      evidence_refs:
+        - .planning/brownfield-audit/TRUTH.yaml::health_truth
+        - .planning/brownfield-audit/INVARIANTS.md::INV-02.1
+        - .planning/brownfield-audit/INVARIANTS.md::INV-02.2
+
+    - domain: overall
+      final_verdict: INVALID
+      dependent_truth_surfaces:
+        - health_truth
+        - freeze_enforcement_truth
+        - execution_alignment_truth
+        - credential_isolation_truth
+        - sandbox_runtime_boundary_truth
+      dominant_risks:
+        - RISK-001
+        - RISK-002
+        - RISK-004
+        - RISK-006
+        - RISK-007
+        - RISK-008
+      rationale: "BrokeLLM has real strengths and many implemented control-plane mechanisms, but the audit still contains direct invalid truth domains plus several high-impact conditional security/authority/runtime gaps. That prevents an overall VALID or even comfortably CONDITIONAL judgment."
+      evidence_refs:
+        - .planning/brownfield-audit/RISK_REGISTER.yaml
+        - .planning/brownfield-audit/DRIFT_MAP.yaml

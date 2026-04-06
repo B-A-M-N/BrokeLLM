@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import site
 import stat
 import time
@@ -20,6 +21,7 @@ BIN_DIR = pathlib.Path(__file__).resolve().parent
 if str(BIN_DIR) not in sys.path:
     sys.path.insert(0, str(BIN_DIR))
 
+from _acp_lane import default_runtime_registry as _default_runtime_registry
 from _fs_common import locked_file as _locked_file
 from _harness_common import append_event as _append_shared_event
 from _harness_common import canonical_json as _canonical_json
@@ -35,6 +37,7 @@ CONFIG   = DIR / "config.json"
 DEPLOYMENTS = DIR / ".deployments.json"
 TEAMS    = DIR / ".teams.json"
 PROFILES  = DIR / ".profiles.json"
+CLIENT_BINDINGS = DIR / ".client_bindings.json"
 SNAPSHOTS = DIR / ".snapshots"
 FREEZE    = DIR / ".freeze"
 ROTATION_POLICY = DIR / ".rotation.json"
@@ -59,14 +62,48 @@ LAUNCH_AUDIT_LOG = DIR / ".launch_audit.log"
 SANDBOX_PROFILE_FILE = DIR / ".sandbox-profile"
 PROXY_SOCKET = DIR / ".runtime" / "proxy.sock"
 
-VALID_SLOTS = ["sonnet", "opus", "haiku", "default", "subagent"]
+CLAUDE_SLOTS = ["sonnet", "opus", "haiku", "custom"]
+SEMANTIC_SLOTS = ["subagent"]
+
+CODEX_SLOTS = [
+    "gpt54",
+    "gpt54mini",
+    "gpt53codex",
+    "gpt52codex",
+    "gpt52",
+    "gpt51codexmax",
+    "gpt51codexmini",
+]
+VALID_SLOTS = CLAUDE_SLOTS + SEMANTIC_SLOTS + CODEX_SLOTS
 
 DEFAULT_MAPPING = {
     "sonnet":  {"provider":"openrouter","model":"qwen/qwen3.6-plus:free","label":"OR/Qwen-3.6+","key":"OPENROUTER_API_KEY"},
     "opus":    {"provider":"openrouter","model":"nvidia/nemotron-3-super-120b-a12b:free","label":"OR/Nemotron-3-Super","key":"OPENROUTER_API_KEY"},
     "haiku":   {"provider":"openrouter","model":"stepfun/step-3.5-flash:free","label":"OR/Step-3.5","key":"OPENROUTER_API_KEY"},
-    "default": {"provider":"openrouter","model":"qwen/qwen3.6-plus:free","label":"OR/Qwen-3.6+","key":"OPENROUTER_API_KEY"},
-    "subagent":{"provider":"openrouter","model":"z-ai/glm-4.5-air:free","label":"OR/GLM-4.5","key":"OPENROUTER_API_KEY"}
+    "custom":  {"provider":"openrouter","model":"nvidia/nemotron-3-nano-30b-a3b:free","label":"OR/Nemotron-3-Nano","key":"OPENROUTER_API_KEY"},
+    "subagent":{"provider":"openrouter","model":"z-ai/glm-4.5-air:free","label":"OR/GLM-4.5","key":"OPENROUTER_API_KEY"},
+    "gpt54": {"provider":"openrouter","model":"qwen/qwen3.6-plus:free","label":"OR/Qwen-3.6+","key":"OPENROUTER_API_KEY"},
+    "gpt54mini": {"provider":"openrouter","model":"stepfun/step-3.5-flash:free","label":"OR/Step-3.5","key":"OPENROUTER_API_KEY"},
+    "gpt53codex": {"provider":"groq","model":"moonshotai/kimi-k2-instruct","label":"Groq/Kimi-K2","key":"GROQ_API_KEY"},
+    "gpt52codex": {"provider":"openrouter","model":"z-ai/glm-4.5-air:free","label":"OR/GLM-4.5","key":"OPENROUTER_API_KEY"},
+    "gpt52": {"provider":"openrouter","model":"nvidia/nemotron-3-super-120b-a12b:free","label":"OR/Nemotron-3-Super","key":"OPENROUTER_API_KEY"},
+    "gpt51codexmax": {"provider":"groq","model":"moonshotai/kimi-k2-instruct","label":"Groq/Kimi-K2","key":"GROQ_API_KEY"},
+    "gpt51codexmini": {"provider":"groq","model":"meta-llama/llama-4-scout-17b-16e-instruct","label":"Groq/Llama-4-Scout","key":"GROQ_API_KEY"},
+}
+
+SLOT_DISPLAY_NAMES = {
+    "sonnet": "Sonnet (1M)",
+    "opus": "Opus (1M)",
+    "haiku": "Haiku",
+    "custom": "Custom",
+    "subagent": "Subagent",
+    "gpt54": "GPT-5.4",
+    "gpt54mini": "GPT-5.4 Mini",
+    "gpt53codex": "GPT-5.3 Codex",
+    "gpt52codex": "GPT-5.2 Codex",
+    "gpt52": "GPT-5.2",
+    "gpt51codexmax": "GPT-5.1 Codex Max",
+    "gpt51codexmini": "GPT-5.1 Codex Mini",
 }
 
 # pinned=False → floating alias; may drift when upstream updates their default.
@@ -100,11 +137,51 @@ SAFE_PTH_PATTERNS = [
     "pytest-cov.pth",
     "init_cov_core.pth",
     "__editable__.*.pth",
+    "*-nspkg.pth",
     "*.nspkg.pth",
 ]
 STRICT_PREFLIGHT_ENV = "BROKE_PREFLIGHT_STRICT"
 HARNESS_MODES = ["off", "throughput", "balanced", "high_assurance"]
 HARNESS_VERDICTS = ["ACCEPT", "ACCEPT_WITH_WARNINGS", "RETRY_NARROW", "RETRY_BROAD", "ESCALATE", "BLOCK"]
+HARNESS_REVIEW_ROLES = ["worker", "verifier", "adversary"]
+HARNESS_LANE_HEALTH = ["healthy", "degraded", "failed"]
+HARNESS_IMPLEMENTATION_CHECKLIST = [
+    {
+        "id": "lane_instances",
+        "label": "Persistent lane instances",
+        "detail": "Durable worker/verifier/adversary records with identity, health, binding, and last contribution.",
+    },
+    {
+        "id": "lane_sessions",
+        "label": "Lane session continuity",
+        "detail": "Per-lane logical session state that survives across ephemeral review calls.",
+    },
+    {
+        "id": "evidence_classes",
+        "label": "Normalized evidence classes",
+        "detail": "Task, diff, tests, commands, policy events, and retry history stored as typed observation artifacts.",
+    },
+    {
+        "id": "observation_inference_split",
+        "label": "Observation / inference split",
+        "detail": "Evidence packets separate direct observations from derived summaries so model lanes do not consume mixed truth levels.",
+    },
+    {
+        "id": "verdict_contributions",
+        "label": "Verdict contribution records",
+        "detail": "Each role writes a durable contribution object instead of only a final summarized verdict.",
+    },
+    {
+        "id": "degraded_lane_policy",
+        "label": "Degraded review-lane policy",
+        "detail": "Timeouts, provider failures, and missing lane outputs are explicit categories in verdict algebra.",
+    },
+    {
+        "id": "operator_checklist",
+        "label": "Operator checklist surface",
+        "detail": "Harness exposes the implementation checklist directly so the control plane shows what is meant to be true.",
+    },
+]
 
 
 def _entry_identity(entry):
@@ -592,8 +669,10 @@ def _normalise_role_verdict(value):
     return normalized if normalized in HARNESS_VERDICTS else None
 
 
-def _harness_verdict(config, preflight_findings, validate_findings, role_verdicts=None, risk="normal", retries=0):
+def _harness_verdict(config, preflight_findings, validate_findings, role_verdicts=None, risk="normal", retries=0, evidence_summary=None, lane_states=None):
     role_verdicts = role_verdicts or {}
+    evidence_summary = evidence_summary or {}
+    lane_states = lane_states or {}
     mode = config.get("mode", "off")
     if mode == "off":
         return {
@@ -602,6 +681,7 @@ def _harness_verdict(config, preflight_findings, validate_findings, role_verdict
             "reasons": ["harness mode is off"],
             "categories": [],
             "role_verdicts": role_verdicts,
+            "lane_health": {role: (lane_states.get(role, {}) or {}).get("health", "healthy") for role in HARNESS_REVIEW_ROLES},
             "risk": risk,
             "retries": retries,
         }
@@ -632,6 +712,16 @@ def _harness_verdict(config, preflight_findings, validate_findings, role_verdict
     if validate_warnings:
         categories.append("quality")
 
+    if evidence_summary.get("diff_present") and not evidence_summary.get("tests_present"):
+        categories.append("evidence")
+        reasons.append("diff evidence present without test evidence")
+    if evidence_summary.get("diff_present") and not evidence_summary.get("commands_present"):
+        categories.append("evidence")
+        reasons.append("diff evidence present without command trace evidence")
+    if evidence_summary.get("policy_events_present") and evidence_summary.get("policy_event_lines", 0) >= 3 and not evidence_summary.get("tests_present"):
+        categories.append("verification")
+        reasons.append("policy activity present without matching verification evidence")
+
     if role_verdicts.get("worker") == "BLOCK":
         categories.append("fabrication")
         reasons.append("worker role returned BLOCK")
@@ -641,6 +731,14 @@ def _harness_verdict(config, preflight_findings, validate_findings, role_verdict
     if role_verdicts.get("adversary") in {"ESCALATE", "BLOCK"}:
         categories.append("fabrication")
         reasons.append(f"adversary returned {role_verdicts['adversary']}")
+
+    degraded_roles = []
+    for role in HARNESS_REVIEW_ROLES:
+        lane = lane_states.get(role, {}) or {}
+        if lane.get("health") in {"degraded", "failed"}:
+            degraded_roles.append(role)
+            categories.append("review_degraded")
+            reasons.append(f"{role} lane health is {lane.get('health')}: {lane.get('degraded_reason') or 'no reason recorded'}")
 
     categories = list(dict.fromkeys(categories))
     block_on = set(profile.get("block_on", []))
@@ -670,6 +768,8 @@ def _harness_verdict(config, preflight_findings, validate_findings, role_verdict
         "reasons": reasons[:12],
         "categories": categories,
         "role_verdicts": role_verdicts,
+        "lane_health": {role: (lane_states.get(role, {}) or {}).get("health", "healthy") for role in HARNESS_REVIEW_ROLES},
+        "degraded_roles": degraded_roles,
         "risk": risk,
         "retries": retries,
     }
@@ -793,20 +893,21 @@ def _default_harness_config():
     return {
         "mode": "off",
         "generation": 1,
+        "runtime_registry": _default_runtime_registry(),
         "profiles": {
             "throughput": {
                 "block_on": ["integrity", "boundary", "fabrication"],
-                "retry_on": ["correctness", "verification"],
+                "retry_on": ["correctness", "verification", "review_degraded"],
                 "escalate_after_retries": 3,
             },
             "balanced": {
                 "block_on": ["integrity", "boundary", "fabrication"],
-                "retry_on": ["correctness", "verification", "suspicious_tests"],
+                "retry_on": ["correctness", "verification", "suspicious_tests", "review_degraded"],
                 "escalate_after_retries": 2,
             },
             "high_assurance": {
                 "block_on": ["integrity", "boundary", "fabrication", "verification"],
-                "retry_on": ["correctness", "suspicious_tests", "quality"],
+                "retry_on": ["correctness", "suspicious_tests", "quality", "review_degraded"],
                 "escalate_after_retries": 1,
             },
         },
@@ -819,6 +920,8 @@ def _load_harness_config():
     for key, value in defaults.items():
         if key not in cfg:
             cfg[key] = value
+    if "runtime_registry" not in cfg:
+        cfg["runtime_registry"] = _default_runtime_registry()
     claude_exports = _load_claude_env_exports()
     env_mode = os.environ.get("BROKE_HARNESS_MODE") or claude_exports.get("BROKE_HARNESS_MODE")
     if env_mode:
@@ -834,10 +937,52 @@ def _save_harness_config(cfg):
     _atomic_write_json(HARNESS_CONFIG, cfg)
 
 
+def _default_harness_lane(role):
+    return {
+        "lane_id": f"lane.{role}.v1",
+        "role": role,
+        "runtime_binding": "ephemeral_review",
+        "session_id": f"session.{role}.v1",
+        "status": "idle",
+        "health": "healthy",
+        "degraded_reason": "",
+        "last_review_request_hash": "",
+        "last_review_result_id": "",
+        "last_contribution_id": "",
+        "last_verdict": None,
+        "review_count": 0,
+        "reuse_count": 0,
+        "failure_count": 0,
+        "updated_at": None,
+    }
+
+
+def _default_harness_checklist_state():
+    return {
+        "items": [
+            {
+                "id": item["id"],
+                "label": item["label"],
+                "detail": item["detail"],
+                "implemented": True,
+            }
+            for item in HARNESS_IMPLEMENTATION_CHECKLIST
+        ]
+    }
+
+
 def _load_harness_state():
     state = _read_json(HARNESS_STATE, {})
     state.setdefault("evaluations", [])
     state.setdefault("last_verdict", None)
+    lanes = state.setdefault("lanes", {})
+    for role in HARNESS_REVIEW_ROLES:
+        current = lanes.get(role, {})
+        merged = _default_harness_lane(role)
+        if isinstance(current, dict):
+            merged.update(current)
+        lanes[role] = merged
+    state.setdefault("checklist", _default_harness_checklist_state())
     return state
 
 
@@ -961,6 +1106,81 @@ def _complete_harness_run(run_id, verdict=None, categories=None, checkpoint_id=N
         payload={"verdict": verdict, "categories": categories or [], "checkpoint_id": checkpoint_id},
     )
     return record
+
+
+def _pid_is_live(pid):
+    try:
+        pid_int = int(pid)
+    except Exception:
+        return False
+    if pid_int <= 0:
+        return False
+    try:
+        os.kill(pid_int, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _reconcile_harness_runs():
+    runs = _load_harness_runs()
+    active = _load_harness_active_run()
+    changed = []
+    now = _iso_now()
+    for run_id, record in list(runs.get("runs", {}).items()):
+        if record.get("status") != "running":
+            continue
+        run_dir = HARNESS_RUN_ROOT / run_id
+        session = _read_json(run_dir / "state" / "session.json", {})
+        if not session:
+            record["status"] = "failed_launch"
+            record["completed_at"] = record.get("completed_at") or now
+            reason = "missing_session_state"
+            runs["runs"][run_id] = record
+            _append_harness_event(
+                run_id,
+                "run.reconciled",
+                "reconciliation",
+                "harness_controller",
+                "broke",
+                payload={"reason": reason, "status": record["status"]},
+            )
+            changed.append({"run_id": run_id, "status": record["status"], "reason": reason})
+            if active.get("run_id") == run_id:
+                active = {}
+            continue
+        pid = session.get("child_pid")
+        session_status = session.get("status")
+        if _pid_is_live(pid):
+            continue
+        if session_status == "completed" or session.get("exit_code") is not None:
+            record["status"] = "completed"
+            record["completed_at"] = record.get("completed_at") or now
+            reason = "session_completed"
+        else:
+            record["status"] = "abandoned"
+            record["completed_at"] = record.get("completed_at") or now
+            reason = "stale_without_live_session"
+        runs["runs"][run_id] = record
+        _append_harness_event(
+            run_id,
+            "run.reconciled",
+            "reconciliation",
+            "harness_controller",
+            "broke",
+            payload={"reason": reason, "status": record["status"]},
+        )
+        changed.append({"run_id": run_id, "status": record["status"], "reason": reason})
+        if active.get("run_id") == run_id:
+            active = {}
+    if changed:
+        _save_harness_runs(runs)
+        _save_harness_active_run(active)
+    return {"changed": changed, "active_run": active}
 
 
 def _sha256_obj(data):
@@ -1090,6 +1310,7 @@ def _load_harness_review_cache():
     data.setdefault("requests", {})
     data.setdefault("results", {})
     data.setdefault("verdicts", {})
+    data.setdefault("contributions", {})
     return data
 
 
@@ -1158,20 +1379,82 @@ def _store_harness_artifact(cache, kind, content, normalization_version="1", met
     return artifact_hash
 
 
+def _typed_observation(name, text, observed_kind, observation_class):
+    body = str(text or "").strip()
+    return {
+        "name": name,
+        "kind": observed_kind,
+        "observation_class": observation_class,
+        "present": bool(body),
+        "line_count": len([line for line in body.splitlines() if line.strip()]),
+        "body": body,
+    }
+
+
+def _build_harness_evidence_summary(task="", diff="", tests="", commands="", policy_events="", retry_summary=""):
+    return {
+        "task_present": bool(task.strip()),
+        "diff_present": bool(diff.strip()),
+        "tests_present": bool(tests.strip()),
+        "commands_present": bool(commands.strip()),
+        "policy_events_present": bool(policy_events.strip()),
+        "retry_summary_present": bool(retry_summary.strip()),
+        "diff_lines": len([line for line in diff.splitlines() if line.strip()]),
+        "test_lines": len([line for line in tests.splitlines() if line.strip()]),
+        "command_lines": len([line for line in commands.splitlines() if line.strip()]),
+        "policy_event_lines": len([line for line in policy_events.splitlines() if line.strip()]),
+    }
+
+
 def _build_harness_evidence_packet(task="", diff="", tests="", commands="", policy_events="", retry_summary="", checkpoint_kind="completion_proposal"):
     evidence_cache = _load_harness_evidence_cache()
-    task_hash = _store_harness_artifact(evidence_cache, "task_packet", {"task": task.strip()})
-    artifact_hashes = [
-        _store_harness_artifact(evidence_cache, "diff_summary", {"diff": diff.strip()}),
-        _store_harness_artifact(evidence_cache, "test_result_summary", {"tests": tests.strip()}),
-        _store_harness_artifact(evidence_cache, "command_trace_summary", {"commands": commands.strip()}),
-        _store_harness_artifact(evidence_cache, "policy_event_summary", {"policy_events": policy_events.strip()}),
-        _store_harness_artifact(evidence_cache, "retry_summary", {"retry_summary": retry_summary.strip()}),
+    observations = [
+        _typed_observation("task", task, "task_statement", "observation"),
+        _typed_observation("diff", diff, "diff_summary", "observation"),
+        _typed_observation("tests", tests, "test_result_summary", "observation"),
+        _typed_observation("commands", commands, "command_trace_summary", "observation"),
+        _typed_observation("policy_events", policy_events, "policy_event_summary", "observation"),
+        _typed_observation("retry_summary", retry_summary, "retry_summary", "observation"),
     ]
+    evidence_summary = _build_harness_evidence_summary(
+        task=task,
+        diff=diff,
+        tests=tests,
+        commands=commands,
+        policy_events=policy_events,
+        retry_summary=retry_summary,
+    )
+    observation_hashes = []
+    task_hash = ""
+    for observation in observations:
+        artifact_hash = _store_harness_artifact(
+            evidence_cache,
+            observation["kind"],
+            {observation["name"]: observation["body"]},
+            metadata={
+                "observation_class": observation["observation_class"],
+                "present": observation["present"],
+                "line_count": observation["line_count"],
+            },
+        )
+        observation_hashes.append(artifact_hash)
+        if observation["name"] == "task":
+            task_hash = artifact_hash
+    summary_hash = _store_harness_artifact(
+        evidence_cache,
+        "evidence_summary",
+        evidence_summary,
+        metadata={"observation_class": "inference", "derived_from": observation_hashes},
+    )
+    artifact_hashes = observation_hashes + [summary_hash]
     checkpoint_payload = {
         "checkpoint_kind": checkpoint_kind,
         "task_packet_hash": task_hash,
         "artifact_hashes": artifact_hashes,
+        "observation_hashes": observation_hashes,
+        "inference_hashes": [summary_hash],
+        "evidence_contract_version": "v2",
+        "evidence_summary": evidence_summary,
     }
     checkpoint_hash = _sha256_obj(checkpoint_payload)
     evidence_cache["checkpoints"][checkpoint_hash] = checkpoint_payload
@@ -1179,8 +1462,12 @@ def _build_harness_evidence_packet(task="", diff="", tests="", commands="", poli
     return {
         "task_packet_hash": task_hash,
         "artifact_hashes": artifact_hashes,
+        "observation_hashes": observation_hashes,
+        "inference_hashes": [summary_hash],
         "checkpoint_evidence_hash": checkpoint_hash,
         "checkpoint_kind": checkpoint_kind,
+        "evidence_contract_version": "v2",
+        "evidence_summary": evidence_summary,
     }
 
 
@@ -1191,6 +1478,9 @@ def _review_request(role, prefix_hash, evidence_packet, role_input=None, packet_
         "packet_builder_version": f"{role}_packet_{packet_builder_version}",
         "task_packet_hash": evidence_packet["task_packet_hash"],
         "evidence_hashes": evidence_packet["artifact_hashes"],
+        "observation_hashes": evidence_packet.get("observation_hashes", []),
+        "inference_hashes": evidence_packet.get("inference_hashes", []),
+        "evidence_contract_version": evidence_packet.get("evidence_contract_version", "v1"),
     }
     if role_input is not None:
         payload["role_input"] = role_input
@@ -1199,6 +1489,33 @@ def _review_request(role, prefix_hash, evidence_packet, role_input=None, packet_
     request["review_request_hash"] = review_request_hash
     request["review_request_id"] = f"reviewreq.{role}.{review_request_hash[:12]}"
     return request
+
+
+def _normalise_lane_health(value):
+    if not value:
+        return "healthy"
+    normalized = str(value).strip().lower()
+    return normalized if normalized in HARNESS_LANE_HEALTH else None
+
+
+def _lane_contribution(role, lane_state, request_hash, result_payload=None, source="missing", lane_health="healthy", lane_error=""):
+    parsed = (result_payload or {}).get("parsed_output", {}) if isinstance(result_payload, dict) else {}
+    payload = {
+        "role": role,
+        "lane_id": lane_state.get("lane_id", f"lane.{role}.v1"),
+        "session_id": lane_state.get("session_id", f"session.{role}.v1"),
+        "review_request_hash": request_hash,
+        "source": source,
+        "lane_health": lane_health,
+        "lane_error": lane_error,
+        "recommended_verdict": parsed.get("recommended_verdict"),
+        "confidence": parsed.get("confidence"),
+        "supportedness": parsed.get("supportedness"),
+    }
+    contribution_hash = _sha256_obj(payload)
+    payload["contribution_id"] = f"contrib.{role}.{contribution_hash[:12]}"
+    payload["contribution_hash"] = contribution_hash
+    return payload
 
 
 def _resolve_backend_target(token, slots):
@@ -1219,6 +1536,7 @@ def _resolve_backend_target(token, slots):
             return _clone_entry(backend)
 
     return None
+
 
 
 def _pick_fallback_targets_interactively(slots, prompt_title):
@@ -1352,11 +1670,27 @@ def cmd_init():
 
 def load():
     with open(MAPPING) as f:
-        return json.load(f)
+        mapping = json.load(f)
+    changed = False
+    for slot in VALID_SLOTS:
+        if slot in mapping:
+            continue
+        default = DEFAULT_MAPPING.get(slot)
+        if default is None:
+            continue
+        mapping[slot] = dict(default)
+        changed = True
+    if changed:
+        _atomic_write_json(MAPPING, mapping)
+    return mapping
 
 def _slots(m):
     """Return only slot entries, excluding internal keys like _fallbacks."""
     return {k: v for k, v in m.items() if not k.startswith("_")}
+
+
+def _slot_display_name(slot):
+    return SLOT_DISPLAY_NAMES.get(slot, slot)
 
 def cmd_config():
     m = load()
@@ -1431,39 +1765,39 @@ def cmd_config():
                 "pinned": entry.get("pinned"),
             })
 
+    for source_mapping in _all_config_mappings():
+        for entry in _slots(source_mapping).values():
+            _add_model_entry(entry)
+        for targets in source_mapping.get("_lane_fallback_targets", {}).values():
+            for entry in targets:
+                _add_model_entry(entry)
+
     for claude_name, entry in slots.items():
-        # Enforce slot access policy
+        # Enforce slot access policy only for the active client env exports.
         if allowed_slots is not None and claude_name not in allowed_slots:
             continue
         label = entry["label"]
-        _add_model_entry(entry)
+        model_id = entry["model"]
 
         if claude_name == "sonnet":
-            env_lines.append(f'export ANTHROPIC_DEFAULT_SONNET_MODEL="{label}"')
+            env_lines.append(f'export ANTHROPIC_DEFAULT_SONNET_MODEL="{model_id}"')
             env_lines.append(f'export ANTHROPIC_DEFAULT_SONNET_MODEL_NAME="Sonnet"')
             env_lines.append(f'export ANTHROPIC_DEFAULT_SONNET_MODEL_DESCRIPTION="{label} · free"')
-        elif claude_name == "opus-1m":
-            env_lines.append(f'export ANTHROPIC_DEFAULT_OPUS_MODEL="{label}"')
+        elif claude_name == "opus":
+            env_lines.append(f'export ANTHROPIC_DEFAULT_OPUS_MODEL="{model_id}"')
             env_lines.append(f'export ANTHROPIC_DEFAULT_OPUS_MODEL_NAME="Opus"')
             env_lines.append(f'export ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION="{label} · free"')
         elif claude_name == "haiku":
-            env_lines.append(f'export ANTHROPIC_DEFAULT_HAIKU_MODEL="{label}"')
+            env_lines.append(f'export ANTHROPIC_SMALL_FAST_MODEL="{model_id}"')
+            env_lines.append(f'export ANTHROPIC_DEFAULT_HAIKU_MODEL="{model_id}"')
             env_lines.append(f'export ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME="Haiku"')
             env_lines.append(f'export ANTHROPIC_DEFAULT_HAIKU_MODEL_DESCRIPTION="{label} · free"')
-        elif claude_name == "opus":
-            env_lines.append(f'export ANTHROPIC_DEFAULT_OPUS_MODEL="{label}"')
-            env_lines.append(f'export ANTHROPIC_DEFAULT_OPUS_MODEL_NAME="Opus"')
-            env_lines.append(f'export ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION="{label} · free"')
-            env_lines.append(f'export ANTHROPIC_CUSTOM_MODEL_OPTION="{label}"')
-            env_lines.append(f'export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Opus"')
+        elif claude_name == "custom":
+            env_lines.append(f'export ANTHROPIC_CUSTOM_MODEL_OPTION="{model_id}"')
+            env_lines.append(f'export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Custom"')
             env_lines.append(f'export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="{label} · free"')
         elif claude_name == "subagent":
-            env_lines.append(f'export CLAUDE_CODE_SUBAGENT_MODEL="{label}"')
-
-    # Fallbacks: use per-team chains if defined, else skip (let retries handle it)
-    for targets in lane_targets.values():
-        for entry in targets:
-            _add_model_entry(entry)
+            env_lines.append(f'export CLAUDE_CODE_SUBAGENT_MODEL="{model_id}"')
 
     fb_list = []
     for slot in VALID_SLOTS:
@@ -1513,20 +1847,38 @@ def cmd_models():
     print("  " + "─" * 78)
     print("  ⚠ floating = alias may drift when upstream changes their default\n")
 
-def cmd_swap():
+def cmd_swap(provider="claude"):
     m = load()
     slots = _slots(m)
     backends = BACKENDS_DATA
 
-    print("\n  Remap a Claude model to a backend:\n")
-    models = VALID_SLOTS
-    for i, claude in enumerate(models):
-        if claude in slots:
-            print(f"  {i})  {claude:<12} → {slots[claude]['label']}")
+    if provider == "codex":
+        family_slots = CODEX_SLOTS
+        family_label = "Codex"
+    elif provider == "claude":
+        family_slots = CLAUDE_SLOTS + SEMANTIC_SLOTS
+        family_label = "Claude"
+    else:
+        family_slots = VALID_SLOTS
+        family_label = provider.capitalize()
+
+    print(f"\n  Remap a {family_label} slot to a backend:\n")
+    if provider == "claude":
+        print("  Default         [runtime] → Claude's built-in tier default")
+        print()
+    displayable = [(slot, slots[slot]) for slot in family_slots if slot in slots]
+    for i, (slot, entry) in enumerate(displayable):
+        print(f"  {i})  {_slot_display_name(slot):<14} [{slot}] → {entry['label']}")
     print("  x)  cancel\n")
-    slot = input("  Pick Claude model > ").strip()
-    if slot == "x": return
-    target = models[int(slot)]
+    slot_input = input("  Pick slot > ").strip()
+    if slot_input == "x":
+        return
+    try:
+        idx = int(slot_input)
+        target = displayable[idx][0]
+    except (ValueError, IndexError):
+        print("  [broke] invalid selection")
+        return
 
     print("\n  Available backends:\n")
     for i, b in enumerate(backends):
@@ -1546,6 +1898,190 @@ def cmd_swap():
     pin_warn = "  ⚠  floating alias — may drift on upstream updates" if not b.get("pinned", True) else ""
     print(f"\n  [{target}] → {b['provider']}/{b['model']} ({b['label']}){pin_warn}")
     cmd_config()
+
+
+def cmd_swap_many(provider, *assignments):
+    m = load()
+    slots = _slots(m)
+
+    provider_key = (provider or "").strip().lower()
+    if provider_key == "codex":
+        family_slots = set(CODEX_SLOTS)
+    elif provider_key == "claude":
+        family_slots = set(CLAUDE_SLOTS + SEMANTIC_SLOTS)
+    elif provider_key == "all":
+        family_slots = set(VALID_SLOTS)
+    else:
+        print("\n  [broke] Usage: broke swap-many <claude|codex|all> <slot=target> [slot=target ...]\n")
+        sys.exit(1)
+
+    displayable = [slot for slot in VALID_SLOTS if slot in slots and slot in family_slots]
+    index_map = {str(i): slot for i, slot in enumerate(displayable)}
+
+    if not assignments:
+        print("\n  [broke] swap-many targets")
+        print("  " + "─" * 62)
+        print(f"  scope: {provider_key}")
+        for i, slot in enumerate(displayable):
+            print(f"  {i}) {_slot_display_name(slot):<14} [{slot}] → {slots[slot]['label']}")
+        print("\n  Usage: broke swap-many <claude|codex|all> <slot=target> [slot=target ...]")
+        print("  slot can be: slot name, numeric index from list above, or 'all'")
+        sys.exit(1)
+
+    updates = []
+    for item in assignments:
+        token = (item or "").strip()
+        if "=" not in token:
+            print(f"\n  [broke] Invalid assignment '{token}'. Expected format: <slot=target>\n")
+            sys.exit(1)
+        slot_token, target_token = token.split("=", 1)
+        slot_token = slot_token.strip()
+        target_token = target_token.strip()
+        if not slot_token or not target_token:
+            print(f"\n  [broke] Invalid assignment '{token}'. Expected format: <slot=target>\n")
+            sys.exit(1)
+        target = _resolve_backend_target(target_token, slots)
+        if target is None:
+            print(f"\n  [broke] Unknown backend target '{target_token}'. Use a backend label or provider/model.\n")
+            sys.exit(1)
+
+        resolved_slots = []
+        if slot_token.lower() == "all":
+            resolved_slots = list(displayable)
+        elif slot_token in index_map:
+            resolved_slots = [index_map[slot_token]]
+        else:
+            if slot_token not in VALID_SLOTS:
+                print(f"\n  [broke] Unknown slot '{slot_token}'. Valid: {', '.join(VALID_SLOTS)}\n")
+                sys.exit(1)
+            if slot_token not in family_slots:
+                print(f"\n  [broke] Slot '{slot_token}' is outside '{provider_key}' scope.\n")
+                sys.exit(1)
+            resolved_slots = [slot_token]
+
+        for slot in resolved_slots:
+            updates.append((slot, target))
+
+    deduped_updates = []
+    seen = set()
+    for slot, target in updates:
+        key = (slot, target.get("label", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped_updates.append((slot, target))
+
+    for slot, target in deduped_updates:
+        m[slot] = target
+
+    _atomic_write_json(MAPPING, m)
+    _atomic_write_json(BACKENDS, BACKENDS_DATA)
+    cmd_config()
+
+    print("\n  broke swap-many")
+    print("  " + "─" * 62)
+    print(f"  scope: {provider_key}")
+    for slot, target in deduped_updates:
+        pin_warn = "  ⚠ floating alias" if not target.get("pinned", True) else ""
+        print(f"  {slot:<12} → {target['label']:<25} ({target['provider']}/{target['model']}){pin_warn}")
+    print()
+
+
+def _family_slots_for_provider(provider):
+    provider_key = (provider or "").strip().lower()
+    if provider_key == "codex":
+        return provider_key, list(CODEX_SLOTS)
+    if provider_key == "claude":
+        return provider_key, list(CLAUDE_SLOTS + SEMANTIC_SLOTS)
+    if provider_key == "all":
+        return provider_key, list(VALID_SLOTS)
+    return None, None
+
+
+def cmd_swap_many_interactive(provider):
+    m = load()
+    slots = _slots(m)
+    provider_key, family_order = _family_slots_for_provider(provider)
+    if provider_key is None:
+        print("\n  [broke] Usage: broke swap many [claude|codex|all] <slot=target> [slot=target ...]\n")
+        sys.exit(1)
+
+    displayable = [slot for slot in family_order if slot in slots]
+    if not displayable:
+        print(f"\n  [broke] No slots available for scope '{provider_key}'.\n")
+        sys.exit(1)
+
+    print(f"\n  Remap multiple {provider_key} slots to one backend:\n")
+    for i, slot in enumerate(displayable):
+        print(f"  {i})  {_slot_display_name(slot):<14} [{slot}] → {slots[slot]['label']}")
+    print("  all) all listed slots")
+    print("  x)   cancel\n")
+
+    picked = input("  Pick slots (e.g. 0,2,4 or all) > ").strip().lower()
+    if picked == "x":
+        return
+
+    selected_slots = []
+    if picked == "all":
+        selected_slots = list(displayable)
+    else:
+        raw_items = [p.strip() for p in picked.split(",") if p.strip()]
+        if not raw_items:
+            print("  [broke] no slots selected")
+            return
+        seen = set()
+        for item in raw_items:
+            try:
+                idx = int(item)
+            except ValueError:
+                print(f"  [broke] invalid slot index: {item}")
+                return
+            if idx < 0 or idx >= len(displayable):
+                print(f"  [broke] slot index out of range: {item}")
+                return
+            slot = displayable[idx]
+            if slot not in seen:
+                seen.add(slot)
+                selected_slots.append(slot)
+
+    print("\n  Available backends:\n")
+    for i, b in enumerate(BACKENDS_DATA):
+        pin = "" if b.get("pinned", True) else " ⚠"
+        print(f"  {i})  {_provider_display_name(b['provider'])} :: {b['model']}  ({b['label']}){pin}")
+    print("  x)  cancel\n")
+
+    slot_targets = {}
+    for slot in selected_slots:
+        current_label = slots[slot]["label"]
+        choice = input(f"  Pick backend for {slot} (current: {current_label}, Enter=keep) > ").strip().lower()
+        if choice == "x":
+            return
+        if choice == "":
+            slot_targets[slot] = _clone_entry(slots[slot])
+            continue
+        try:
+            backend_idx = int(choice)
+            backend = BACKENDS_DATA[backend_idx]
+        except (ValueError, IndexError):
+            print(f"  [broke] invalid backend selection for {slot}")
+            return
+        slot_targets[slot] = _clone_entry(backend)
+
+    for slot in selected_slots:
+        m[slot] = slot_targets[slot]
+
+    _atomic_write_json(MAPPING, m)
+    _atomic_write_json(BACKENDS, BACKENDS_DATA)
+    cmd_config()
+
+    print("\n  swap-many applied")
+    print("  " + "─" * 62)
+    print(f"  scope   : {provider_key}")
+    for slot in selected_slots:
+        target = slot_targets[slot]
+        pin_warn = "  ⚠ floating alias" if not target.get("pinned", True) else ""
+        print(f"  {slot:<12} → {target['label']:<25} ({target['provider']}/{target['model']}){pin_warn}")
+    print()
 
 def cmd_metrics(port=4000, raw=False):
     try:
@@ -2041,6 +2577,70 @@ def _save_profiles(profiles):
     with open(PROFILES, "w") as f:
         json.dump(profiles, f, indent=2)
 
+
+def _load_client_bindings():
+    if not CLIENT_BINDINGS.exists():
+        return {"tokens": {}}
+    with open(CLIENT_BINDINGS) as f:
+        data = json.load(f)
+    if "tokens" not in data:
+        data["tokens"] = {}
+    return data
+
+
+def _save_client_bindings(data):
+    with open(CLIENT_BINDINGS, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def _generate_client_token():
+    return "broke-app-" + secrets.token_urlsafe(24)
+
+
+def cmd_client_token_bind(profile_name, token=None, name=""):
+    profiles = _load_profiles()
+    if profile_name not in profiles:
+        print(f"\n  [broke] No profile named '{profile_name}'.\n")
+        sys.exit(1)
+    bindings = _load_client_bindings()
+    token_value = token or _generate_client_token()
+    bindings["tokens"][token_value] = {
+        "profile": profile_name,
+        "name": name or profile_name,
+        "created_at": int(time.time()),
+    }
+    _save_client_bindings(bindings)
+    print(json.dumps({
+        "token": token_value,
+        "profile": profile_name,
+        "name": bindings["tokens"][token_value]["name"],
+    }))
+
+
+def cmd_client_token_list():
+    bindings = _load_client_bindings()
+    print("\n  Bound Client Tokens")
+    print("  " + "─" * 60)
+    if not bindings.get("tokens"):
+        print("\n  (none)\n")
+        return
+    for token, info in sorted(bindings["tokens"].items(), key=lambda item: item[1].get("created_at", 0)):
+        preview = token[:14] + "..." if len(token) > 17 else token
+        print(f"\n  {preview}")
+        print(f"    profile : {info.get('profile', 'unknown')}")
+        print(f"    name    : {info.get('name', '—')}")
+    print()
+
+
+def cmd_client_token_revoke(token):
+    bindings = _load_client_bindings()
+    if token not in bindings.get("tokens", {}):
+        print(f"\n  [broke] Unknown client token.\n")
+        sys.exit(1)
+    del bindings["tokens"][token]
+    _save_client_bindings(bindings)
+    print("\n  Client token revoked.\n")
+
 def cmd_profile_new(name, team_name, description="", allowed_slots=None, rpm="0", tpm="0"):
     teams = _load_teams()
     if team_name not in teams:
@@ -2194,6 +2794,14 @@ def _team_mapping(team_name):
     if access:
         mapping["_access"] = access
     return mapping
+
+
+def _all_config_mappings():
+    mappings = [load()]
+    teams = _load_teams()
+    for name in teams:
+        mappings.append(_team_mapping(name))
+    return mappings
 
 
 def _print_fallback_policy(title, mapping):
@@ -2401,6 +3009,7 @@ def cmd_export(path):
         "broke_export": True,
         "teams":    _load_teams(),
         "profiles": _load_profiles(),
+        "client_bindings": _load_client_bindings(),
     }
     out = pathlib.Path(path)
     out.write_text(json.dumps(data, indent=2))
@@ -2421,7 +3030,9 @@ def cmd_import(path, overwrite=False):
 
     teams    = _load_teams()
     profiles = _load_profiles()
+    bindings = _load_client_bindings()
     imported_t = imported_p = skipped_t = skipped_p = 0
+    imported_b = skipped_b = 0
 
     for name, team in data.get("teams", {}).items():
         if name in teams and not overwrite:
@@ -2435,12 +3046,19 @@ def cmd_import(path, overwrite=False):
         else:
             profiles[name] = profile
             imported_p += 1
+    for token, binding in data.get("client_bindings", {}).get("tokens", {}).items():
+        if token in bindings.get("tokens", {}) and not overwrite:
+            skipped_b += 1
+        else:
+            bindings.setdefault("tokens", {})[token] = binding
+            imported_b += 1
 
     _save_teams(teams)
     _save_profiles(profiles)
-    print(f"\n  Imported: {imported_t} team(s), {imported_p} profile(s)")
-    if skipped_t or skipped_p:
-        print(f"  Skipped (already exist): {skipped_t} team(s), {skipped_p} profile(s)")
+    _save_client_bindings(bindings)
+    print(f"\n  Imported: {imported_t} team(s), {imported_p} profile(s), {imported_b} client token binding(s)")
+    if skipped_t or skipped_p or skipped_b:
+        print(f"  Skipped (already exist): {skipped_t} team(s), {skipped_p} profile(s), {skipped_b} client token binding(s)")
         print(f"  Use --overwrite to replace existing.")
     print()
 
@@ -2755,6 +3373,17 @@ def cmd_harness(action=None, value=None, worker=None, verifier=None, adversary=N
         if profile:
             print(f"  block on    : {', '.join(profile.get('block_on', [])) or 'none'}")
             print(f"  retry on    : {', '.join(profile.get('retry_on', [])) or 'none'}")
+        registry = cfg.get("runtime_registry", {})
+        if registry:
+            print("\n  runtimes:")
+            for provider in ("gemini", "claude", "codex", "openrouter", "groq", "cerebras", "local"):
+                runtime = registry.get(provider)
+                if not runtime:
+                    continue
+                print(
+                    f"    {provider:<10} {runtime.get('binding_kind', 'unknown'):<16} "
+                    f"{runtime.get('runtime_class', 'unknown')}"
+                )
         last = state.get("last_verdict")
         if last:
             print(f"  last verdict: {last.get('verdict', 'unknown')}")
@@ -2770,6 +3399,19 @@ def cmd_harness(action=None, value=None, worker=None, verifier=None, adversary=N
         print(f"    prefixes  : {len(prefix_cache.get('prefixes', {}))}")
         print(f"    evidence  : {len(evidence_cache.get('artifacts', {}))} artifacts / {len(evidence_cache.get('checkpoints', {}))} checkpoints")
         print(f"    reviews   : {len(review_cache.get('results', {}))} role results / {len(review_cache.get('verdicts', {}))} verdicts")
+        print("\n  lanes:")
+        for role in HARNESS_REVIEW_ROLES:
+            lane = state.get("lanes", {}).get(role, {})
+            print(
+                f"    {role:<10} {lane.get('health', 'healthy'):<8} "
+                f"status={lane.get('status', 'idle'):<10} "
+                f"reviews={lane.get('review_count', 0):<3} "
+                f"reused={lane.get('reuse_count', 0):<3}"
+            )
+        checklist_items = state.get("checklist", {}).get("items", [])
+        if checklist_items:
+            completed = sum(1 for item in checklist_items if item.get("implemented"))
+            print(f"\n  checklist   : {completed}/{len(checklist_items)} implemented")
         active_run = _load_harness_active_run()
         runs = _load_harness_runs().get("runs", {})
         if active_run.get("run_id"):
@@ -2787,6 +3429,17 @@ def cmd_harness(action=None, value=None, worker=None, verifier=None, adversary=N
             print("\n  runtime:")
             print("    active run : none")
             print(f"    last run   : {latest.get('run_id', 'unknown')} ({latest.get('status', 'unknown')})")
+        print()
+        return
+
+    if action == "checklist":
+        checklist = state.get("checklist", _default_harness_checklist_state())
+        print("\n  broke harness checklist")
+        print("  " + "─" * 58)
+        for item in checklist.get("items", []):
+            mark = "✓" if item.get("implemented") else " "
+            print(f"\n  [{mark}] {item.get('label', item.get('id', 'item'))}")
+            print(f"      {item.get('detail', '')}")
         print()
         return
 
@@ -2847,6 +3500,11 @@ def cmd_harness(action=None, value=None, worker=None, verifier=None, adversary=N
         print(json.dumps(record))
         return
 
+    if action == "reconcile":
+        result = _reconcile_harness_runs()
+        print(json.dumps(result))
+        return
+
     if action == "set":
         target = (value or "").strip().lower()
         if target not in HARNESS_MODES:
@@ -2868,6 +3526,16 @@ def cmd_harness(action=None, value=None, worker=None, verifier=None, adversary=N
         retry_summary = sys.argv[sys.argv.index("--retry-summary")+1] if "--retry-summary" in sys.argv else ""
         checkpoint_kind = sys.argv[sys.argv.index("--checkpoint-kind")+1] if "--checkpoint-kind" in sys.argv else "completion_proposal"
         model_family = sys.argv[sys.argv.index("--model-family")+1] if "--model-family" in sys.argv else "generic"
+        lane_health = {
+            "worker": _normalise_lane_health(sys.argv[sys.argv.index("--worker-health")+1] if "--worker-health" in sys.argv else "healthy"),
+            "verifier": _normalise_lane_health(sys.argv[sys.argv.index("--verifier-health")+1] if "--verifier-health" in sys.argv else "healthy"),
+            "adversary": _normalise_lane_health(sys.argv[sys.argv.index("--adversary-health")+1] if "--adversary-health" in sys.argv else "healthy"),
+        }
+        lane_errors = {
+            "worker": sys.argv[sys.argv.index("--worker-error")+1] if "--worker-error" in sys.argv else "",
+            "verifier": sys.argv[sys.argv.index("--verifier-error")+1] if "--verifier-error" in sys.argv else "",
+            "adversary": sys.argv[sys.argv.index("--adversary-error")+1] if "--adversary-error" in sys.argv else "",
+        }
         role_verdicts = {
             "worker": _normalise_role_verdict(worker),
             "verifier": _normalise_role_verdict(verifier),
@@ -2877,8 +3545,11 @@ def cmd_harness(action=None, value=None, worker=None, verifier=None, adversary=N
         for name, raw_value in {"worker": worker, "verifier": verifier, "adversary": adversary}.items():
             if raw_value is not None and role_verdicts[name] is None:
                 invalid.append(name)
+        for name, value in lane_health.items():
+            if value is None:
+                invalid.append(f"{name}-health")
         if invalid:
-            print(f"\n  [broke] Invalid harness role verdict(s): {', '.join(invalid)}. Valid: {', '.join(HARNESS_VERDICTS)}\n")
+            print(f"\n  [broke] Invalid harness role input(s): {', '.join(invalid)}. Verdicts: {', '.join(HARNESS_VERDICTS)}. Lane health: {', '.join(HARNESS_LANE_HEALTH)}\n")
             sys.exit(1)
         evidence_packet = _build_harness_evidence_packet(
             task=task,
@@ -2890,8 +3561,11 @@ def cmd_harness(action=None, value=None, worker=None, verifier=None, adversary=N
             checkpoint_kind=checkpoint_kind,
         )
         explicit_roles = {name for name, verdict in role_verdicts.items() if verdict}
+        lane_states = state.get("lanes", {})
+        contributions = {}
         reused_roles = []
-        for role_name in ("worker", "verifier", "adversary"):
+        for role_name in HARNESS_REVIEW_ROLES:
+            lane = lane_states.setdefault(role_name, _default_harness_lane(role_name))
             prefix = _resolve_harness_prefix(role_name, cfg.get("mode", "off"), model_family=model_family)
             request = _review_request(
                 role_name,
@@ -2900,8 +3574,11 @@ def cmd_harness(action=None, value=None, worker=None, verifier=None, adversary=N
                 role_input=role_verdicts.get(role_name) if role_name in explicit_roles else None,
             )
             review_cache["requests"][request["review_request_hash"]] = request
+            lane["last_review_request_hash"] = request["review_request_hash"]
+            lane["status"] = "evaluating"
+            lane["updated_at"] = _iso_now()
             if role_name in explicit_roles:
-                review_cache["results"][request["review_request_hash"]] = {
+                result_payload = {
                     "review_result_id": f"reviewres.{role_name}.{request['review_request_hash'][:12]}",
                     "role": role_name,
                     "review_request_hash": request["review_request_hash"],
@@ -2912,16 +3589,48 @@ def cmd_harness(action=None, value=None, worker=None, verifier=None, adversary=N
                         "supportedness": "manual",
                     },
                 }
+                review_cache["results"][request["review_request_hash"]] = result_payload
+                lane["reuse_count"] = int(lane.get("reuse_count", 0) or 0)
+                source = "explicit"
             elif request["review_request_hash"] in review_cache["results"]:
                 cached = review_cache["results"][request["review_request_hash"]]
                 role_verdicts[role_name] = cached.get("parsed_output", {}).get("recommended_verdict")
                 if role_verdicts[role_name]:
                     reused_roles.append(role_name)
+                result_payload = cached
+                lane["reuse_count"] = int(lane.get("reuse_count", 0) or 0) + 1
+                source = "cached"
+            else:
+                result_payload = None
+                source = "missing"
+
+            lane["review_count"] = int(lane.get("review_count", 0) or 0) + 1
+            lane["health"] = lane_health[role_name]
+            lane["degraded_reason"] = lane_errors[role_name] if lane_health[role_name] in {"degraded", "failed"} else ""
+            if lane["health"] in {"degraded", "failed"}:
+                lane["failure_count"] = int(lane.get("failure_count", 0) or 0) + 1
+            lane["status"] = "reviewed" if result_payload else "missing_result"
+            contribution = _lane_contribution(
+                role_name,
+                lane,
+                request["review_request_hash"],
+                result_payload=result_payload,
+                source=source,
+                lane_health=lane["health"],
+                lane_error=lane["degraded_reason"],
+            )
+            lane["last_contribution_id"] = contribution["contribution_id"]
+            lane["last_review_result_id"] = (result_payload or {}).get("review_result_id", "")
+            lane["last_verdict"] = contribution.get("recommended_verdict")
+            lane["updated_at"] = _iso_now()
+            contributions[role_name] = contribution
+            review_cache["contributions"][contribution["contribution_hash"]] = contribution
 
         if not explicit_roles and evidence_packet["checkpoint_evidence_hash"] in review_cache["verdicts"]:
             summary = dict(review_cache["verdicts"][evidence_packet["checkpoint_evidence_hash"]])
             summary["reused_final_verdict"] = True
             summary["reused_roles"] = reused_roles
+            summary["verdict_contributions"] = contributions
             state["last_verdict"] = summary
             state["last_checkpoint_evidence_hash"] = evidence_packet["checkpoint_evidence_hash"]
             state["evaluations"].append(summary)
@@ -2948,9 +3657,23 @@ def cmd_harness(action=None, value=None, worker=None, verifier=None, adversary=N
 
         preflight = _preflight_findings()
         validate = _validate_findings()
-        summary = _harness_verdict(cfg, preflight, validate, role_verdicts=role_verdicts, risk=risk, retries=int(retries or "0"))
+        summary = _harness_verdict(
+            cfg,
+            preflight,
+            validate,
+            role_verdicts=role_verdicts,
+            risk=risk,
+            retries=int(retries or "0"),
+            evidence_summary=evidence_packet.get("evidence_summary", {}),
+            lane_states=lane_states,
+        )
         summary["checkpoint_evidence_hash"] = evidence_packet["checkpoint_evidence_hash"]
         summary["task_packet_hash"] = evidence_packet["task_packet_hash"]
+        summary["evidence_summary"] = evidence_packet.get("evidence_summary", {})
+        summary["evidence_contract_version"] = evidence_packet.get("evidence_contract_version", "v1")
+        summary["observation_hashes"] = evidence_packet.get("observation_hashes", [])
+        summary["inference_hashes"] = evidence_packet.get("inference_hashes", [])
+        summary["verdict_contributions"] = contributions
         summary["reused_final_verdict"] = False
         summary["reused_roles"] = reused_roles
         state["last_verdict"] = summary
@@ -2981,7 +3704,7 @@ def cmd_harness(action=None, value=None, worker=None, verifier=None, adversary=N
         print()
         return
 
-    print("\n  Usage: broke harness [status|set <off|throughput|balanced|high_assurance>|evaluate [--worker V] [--verifier V] [--adversary V] [--risk R] [--retries N] [--task T] [--diff D] [--tests T] [--commands C] [--policy-events P] [--retry-summary S] [--checkpoint-kind K] [--model-family F]]\n")
+    print("\n  Usage: broke harness [status|checklist|set <off|throughput|balanced|high_assurance>|evaluate [--worker V] [--verifier V] [--adversary V] [--worker-health H] [--verifier-health H] [--adversary-health H] [--worker-error E] [--verifier-error E] [--adversary-error E] [--risk R] [--retries N] [--task T] [--diff D] [--tests T] [--commands C] [--policy-events P] [--retry-summary S] [--checkpoint-kind K] [--model-family F]]\n")
     sys.exit(1)
 
 
@@ -2995,7 +3718,9 @@ if __name__ == "__main__":
         "config":           cmd_config,
         "list":             cmd_list,
         "models":           cmd_models,
-        "swap":             cmd_swap,
+        "swap":             lambda: cmd_swap(arg or "claude"),
+        "swap-many":        lambda: cmd_swap_many(arg, *sys.argv[3:]),
+        "swap-many-interactive": lambda: cmd_swap_many_interactive(arg),
         "metrics":          lambda: cmd_metrics(raw="--raw" in sys.argv),
         "team-save":        lambda: cmd_team_save(arg, arg2 if arg2 is not None else "1"),
         "team-load":        lambda: cmd_team_load(arg),
@@ -3024,6 +3749,13 @@ if __name__ == "__main__":
         "profile-load":     lambda: cmd_profile_load(arg),
         "profile-list":     cmd_profile_list,
         "profile-delete":   lambda: cmd_profile_delete(arg),
+        "client-token-bind": lambda: cmd_client_token_bind(
+                                arg,
+                                token=sys.argv[sys.argv.index("--token")+1] if "--token" in sys.argv else None,
+                                name=sys.argv[sys.argv.index("--name")+1] if "--name" in sys.argv else "",
+                            ),
+        "client-token-list": cmd_client_token_list,
+        "client-token-revoke": lambda: cmd_client_token_revoke(arg),
         "export":           lambda: cmd_export(arg or "broke-config.json"),
         "import":           lambda: cmd_import(arg or "broke-config.json", overwrite="--overwrite" in sys.argv),
         "fallback":         lambda: cmd_fallback(arg, *sys.argv[3:]),

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-BrokeLLM routes Claude-style slots such as `sonnet`, `opus`, and `haiku` through a LiteLLM gateway backed by multiple providers. The critical requirement is that every control-plane surface reports the same truth about routing, health, and drift.
+BrokeLLM routes Claude-style slots such as `sonnet`, `opus`, `haiku`, `custom`, and `subagent` through a LiteLLM gateway backed by multiple providers. The critical requirement is that every control-plane surface reports the same truth about routing, health, and drift.
 
 ## Truth Boundary
 
@@ -60,4 +60,3 @@ These tests cover the control-plane behaviors that previously drifted:
 ## Release Checkpoints
 
 This workspace is currently not a git repository, so git tags are not available here. Use a repo-local release marker until the project is moved under version control.
-

@@ -1,0 +1,535 @@
+╭─── Claude Code v2.1.92 ──────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                    Welcome back!                   │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ Recent activity         │
+│                        ▘▘ ▝▝                       │ No recent activity      │
+│                                                    │                         │
+│   stepfun/step-3.5-flash:free · API Usage Billing  │                         │
+│                     ~/BrokeLLM                     │                         │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+❯ comprehensive code gap & security analysis                                    
+
+● I'll conduct a comprehensive code gap and security analysis. Let me start by
+  mapping the project structure and then run parallel deep-dive analyses.
+
+  Searched for 1 pattern, read 11 files (ctrl+o to expand)
+
+● Launching comprehensive analysis across security, code gaps, architecture, and
+   test coverage in parallel.
+
+● Agent(Security vulnerability analysis)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+  Read 2 files (ctrl+o to expand)
+
+● The security analysis is running in background. Let me work on code gaps,
+  architecture consistency, and test coverage in parallel.
+
+● Bash(python3 -c "
+      import json…)
+  ⎿  === cmd_ functions in _mapping.py ===
+       cmd_config
+       cmd_doctor
+     … +34 lines (ctrl+o to expand)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Bash(python3 -m unittest -v /home/bamn/BrokeLLM/tests/test_mapping.py 2>&1 |
+      tail -30)
+  ⎿  test_harness_evaluate_reuses_cached_role_and_final_verdict (tests.test
+     _mapping.MappingTestCase) ... ok
+     test_harness_run_register_creates_active_run_and_ledger (tests.test_ma
+     … +33 lines (ctrl+o to expand)
+
+● Bash(python3 -c "
+      import pathlib…)
+  ⎿  bin/broke: 1359 lines
+     bin/_mapping.py: 3114 lines
+     bin/_proxy.py: 735 lines
+     … +17 lines (ctrl+o to expand)
+
+● Security analysis is still running in the background. Let me compile what I've
+   found so far across the other dimensions, then fold in the security report
+  when it's ready.
+
+● Bash(python3 -c "
+      import pathlib…)
+  ⎿  === CODE GAP ANALYSIS ===
+
+     cmd functions and whether they have a broke bash handler:
+     … +23 lines (ctrl+o to expand)
+● Agent(Check background security analysis)
+  ⎿  Done (15 tool uses · 106.0k tokens · 3m 27s)
+  (ctrl+o to expand)
+
+● Here's the comprehensive code gap & security analysis:
+
+  ---
+  BrokeLLM — Comprehensive Code Gap & Security Analysis
+
+  Date: 2026-04-04
+  Scope: bin/{broke, _mapping.py, _proxy.py, _harness_shim.py, 
+  _socket_bridge.py}, install.sh, tests/
+  Total codebase: 5,653 lines (34 cmd functions, 80 internal functions, 33
+  tests)
+
+  ---
+  1. SECURITY VULNERABILITIES
+
+  CRITICAL (1)
+
+  ┌─────┬─────────────────────────┬──────────────────────────────────────────┐
+  │  #  │          File           │                  Issue                   │
+  ├─────┼─────────────────────────┼──────────────────────────────────────────┤
+  │     │                         │ Secret values written to                 │
+  │ 1   │ bin/_mapping.py:433-456 │ .launch_audit.log — secret_surface list  │
+  │     │                         │ captures actual key names that match     │
+  │     │                         │ `TOKEN                                   │
+  └─────┴─────────────────────────┴──────────────────────────────────────────┘
+
+  HIGH (7)
+
+  #: 2
+  File: bin/broke:293-314
+  Issue: PATH hijacking via shim directory — append_harness_runtime_env prepends
+
+    $HARNESS_RUN_DIR/shims to $PATH. If a worker can compromise that directory,
+    it inserts malicious binaries named after common tools (git, curl, make).
+    Fix: lock directory to 0700, validate shims are symlinks only to
+    _harness_shim.py.
+  ────────────────────────────────────────
+  #: 3
+  File: bin/broke:517-542
+  Issue: Symlink race in ensure_secret_file() — writes tokens without `O_CREAT
+  ────────────────────────────────────────
+  #: 4
+  File: bin/_proxy.py:434-438
+  Issue: Static token auth — CLIENT_TOKEN loaded once at startup, plain-text
+    comparison, no expiration or rate limiting on auth attempts. Fix: add auth
+    attempt throttling, periodic rotation.
+  ────────────────────────────────────────
+  #: 5
+  File: bin/_mapping.py:200-214
+  Issue: Symlink race on .env.claude — set_claude_env_export writes without
+    validating path isn't a symlink first. Fix: lstat() check before write.
+  ────────────────────────────────────────
+  #: 6
+  File: bin/_mapping.py:330-338
+  Issue: Permission drift not enforced — _bad_runtime_permissions() reports but
+    never fixes. Secret files could end up world-readable via manual edits. Fix:
+
+    preflight should be hard-fail on permission drift.
+  ────────────────────────────────────────
+  #: 7
+  File: bin/broke:550-603
+  Issue: Sandbox escape via bwrap bind mounts — --ro-bind-try $HOME/.local,
+    $HOME/.config, $HOME/.cache are overly broad. A malicious process could
+    access user configs, browser data, SSH keys in those trees. Fix: scope to
+    only required paths.
+
+  MEDIUM (6)
+
+  #: 8
+  File: bin/broke:28-29
+  Issue: Pass-through env leakage — CLIENT_PASS_ENV_KEYS includes SSH_AUTH_SOCK,
+
+    DBUS_SESSION_BUS_ADDRESS, WAYLAND_DISPLAY, DISPLAY — these are sensitive
+    session handles that don't need to reach the LLM client.
+  ────────────────────────────────────────
+  #: 9
+  File: bin/_proxy.py:447
+  Issue: Unbounded Content-Length — reads self.rfile.read(int(...)) with no size
+
+    limit. Fix: cap at a reasonable max (e.g., 1 MiB).
+  ────────────────────────────────────────
+  #: 10
+  File: bin/broke:116-132
+  Issue: Broad regex for env var matching — append_matching_file_env uses
+    ^[A-Z_][A-Z0-9_]*$ which matches any uppercase variable, not just provider
+    keys.
+  ────────────────────────────────────────
+  #: 11
+  File: bin/_mapping.py:517-542
+  Issue: ensure_secret_file() reads existing file — if file exists with prior
+    token, it cats it back out to stdout — could leak to command substitution.
+  ────────────────────────────────────────
+  #: 12
+  File: bin/_proxy.py
+  Issue: No KeyboardInterrupt handler — graceful shutdown missing. Unix socket
+    left behind on SIGINT.
+  ────────────────────────────────────────
+  #: 13
+  File: install.sh:112
+  Issue: cp .env.template .env creates files with placeholder secrets —
+  installer
+     doesn't verify or clear placeholder values.
+
+  LOW (2)
+
+  ┌─────┬─────────────────────────┬──────────────────────────────────────────┐
+  │  #  │          File           │                  Issue                   │
+  ├─────┼─────────────────────────┼──────────────────────────────────────────┤
+  │     │                         │ Git status artifact leakage —            │
+  │ 14  │ bin/_mapping.py:400-412 │ collect_harness_checkpoint_artifact      │
+  │     │                         │ exposes branch names, file paths in git  │
+  │     │                         │ status output.                           │
+  ├─────┼─────────────────────────┼──────────────────────────────────────────┤
+  │ 15  │ _mapping.py             │ TOCTOU race — path.exists() then open()  │
+  │     │                         │ pattern used in multiple places.         │
+  └─────┴─────────────────────────┴──────────────────────────────────────────┘
+
+  ---
+  2. CODE GAPS
+
+  Untested Functions (13 of 34 cmd functions lack dedicated tests)
+
+  ┌──────────────────────────────┬────────┬─────────────────────────────────┐
+  │           Function           │  Risk  │              Notes              │
+  ├──────────────────────────────┼────────┼─────────────────────────────────┤
+  │ cmd_init                     │ Low    │ Indirectly tested via setUp     │
+  │                              │        │ calling cmd_init()              │
+  ├──────────────────────────────┼────────┼─────────────────────────────────┤
+  │ cmd_list                     │ Medium │ Display logic, no state         │
+  │                              │        │ mutation                        │
+  ├──────────────────────────────┼────────┼─────────────────────────────────┤
+  │ cmd_metrics                  │ Medium │ Requires running gateway — hard │
+  │                              │        │  to unit test                   │
+  ├──────────────────────────────┼────────┼─────────────────────────────────┤
+  │ cmd_probe                    │ Medium │ Sends live HTTP requests —      │
+  │                              │        │ needs mock                      │
+  ├──────────────────────────────┼────────┼─────────────────────────────────┤
+  │ cmd_validate                 │ Medium │ Configuration validation not    │
+  │                              │        │ tested                          │
+  ├──────────────────────────────┼────────┼─────────────────────────────────┤
+  │ cmd_team_save /              │ Medium │ Team persistence untested       │
+  │ cmd_team_load                │        │                                 │
+  ├──────────────────────────────┼────────┼─────────────────────────────────┤
+  │ cmd_team_delete /            │ Low    │ CRUD operations untested        │
+  │ cmd_team_list                │        │                                 │
+  ├──────────────────────────────┼────────┼─────────────────────────────────┤
+  │ cmd_profile_new /            │ Medium │ Profile creation/loading        │
+  │ cmd_profile_load             │        │ untested                        │
+  ├──────────────────────────────┼────────┼─────────────────────────────────┤
+  │ cmd_profile_delete /         │ Low    │ Profile CRUD untested           │
+  │ cmd_profile_list             │        │                                 │
+  └──────────────────────────────┴────────┴─────────────────────────────────┘
+
+  No unit tests for:
+  - bin/_proxy.py (only 3 proxy tests via shim, not direct)
+  - bin/_harness_shim.py (zero tests)
+  - bin/_socket_bridge.py (only constant checks, no network tests)
+  - install.sh (only grep assertions, no execution tests)
+  - Harness evaluate caching flow — partially tested but no replay validation
+  - Import with --overwrite flag
+  - Snapshot restore with index vs timestamp
+  - Profile inheritance over team access policies
+
+  ---
+  3. ARCHITECTURE CONSISTENCY
+
+  Area: Token generation
+  Finding: ensure_secret_file() in bash and ensure_secret_file-equivalent flow
+  in
+    Python use different seed prefixes (broke-client- vs auto-generated). Not
+    necessarily a bug but inconsistent.
+  ────────────────────────────────────────
+  Area: Event hashing
+  Finding: _mapping.py and _harness_shim.py each implement their own sha256_text
+
+    + canonical_json + append_event. Duplicated logic — single source of truth
+    needed.
+  ────────────────────────────────────────
+  Area: File locking
+  Finding: Both _proxy.py and _mapping.py implement locked_file()/_locked_file()
+
+    context managers independently. Same pattern, different names.
+  ────────────────────────────────────────
+  Area: State normalization
+  Finding: _proxy.py:143-164 and _mapping.py both normalize key/model cooldown
+    state. The proxy does it on every request; _mapping.py does it on load.
+    Potential for stale state between proxy and mapping state files.
+  ────────────────────────────────────────
+  Area: Config generation
+  Finding: cmd_config() writes config.json for LiteLLM but also writes
+    .env.claude. These are coupled operations with no rollback if one fails.
+
+  ---
+  4. TEST COVERAGE SUMMARY
+
+  - 33 tests, all passing
+  - 34 cmd functions, ~13 completely untested
+  - ~80 internal functions, many untested (evidence packet builders, prefix
+  resolution, artifact stores, harness verdict logic)
+  - 0 integration tests (no end-to-end gateway → proxy → backend flow test)
+  - 0 performance tests (request latency through proxy, concurrent client
+  limits)
+  - 0 security regression tests (no tests preventing token leaks, path
+  traversal, etc.)
+
+  ---
+  5. RECOMMENDED PRIORITY ACTIONS
+
+  ┌──────────┬───────────────────────────────────────────────────────────────┐
+  │ Priority │                            Action                             │
+  ├──────────┼───────────────────────────────────────────────────────────────┤
+  │ P0       │ Remove secret key names from audit log entries in             │
+  │          │ _mapping.py:433-456                                           │
+  ├──────────┼───────────────────────────────────────────────────────────────┤
+  │ P1       │ Add file permission enforcement to preflight (fail on drift,  │
+  │          │ don't just warn)                                              │
+  ├──────────┼───────────────────────────────────────────────────────────────┤
+  │ P1       │ Replace ensure_secret_file() with safe file creation          │
+  │          │ (`O_CREAT                                                     │
+  ├──────────┼───────────────────────────────────────────────────────────────┤
+  │ P1       │ Lock shim directory to 0700 and validate all entries are      │
+  │          │ symlinks to _harness_shim.py                                  │
+  ├──────────┼───────────────────────────────────────────────────────────────┤
+  │ P2       │ Deduplicate sha256_text/canonical_json/append_event across    │
+  │          │ _mapping.py and _harness_shim.py                              │
+  ├──────────┼───────────────────────────────────────────────────────────────┤
+  │ P2       │ Add unit tests for _proxy.py request handler (mock            │
+  │          │ connections)                                                  │
+  ├──────────┼───────────────────────────────────────────────────────────────┤
+  │ P2       │ Add tests for untested cmd functions: validate, profile_*,    │
+  │          │ team_load/team_delete                                         │
+  ├──────────┼───────────────────────────────────────────────────────────────┤
+  │ P2       │ Narrow CLIENT_PASS_ENV_KEYS to remove SSH_AUTH_SOCK,          │
+  │          │ DBUS_SESSION_BUS_ADDRESS, DISPLAY                             │
+  ├──────────┼───────────────────────────────────────────────────────────────┤
+  │ P3       │ Add Content-Length limit in _proxy.py                         │
+  ├──────────┼───────────────────────────────────────────────────────────────┤
+  │ P3       │ Add KeyboardInterrupt handler to _proxy.py:main()             │
+  └──────────┴───────────────────────────────────────────────────────────────┘
+
+✻ Sautéed for 13m 18s
+
+● Agent "Security vulnerability analysis" completed
+
+● The security analysis agent's findings have already been incorporated into the
+   report above — all severity-rated findings are there. No additional follow-up
+   needed.
+
+❯ /copy                                                                         
+  ⎿  Copied to clipboard (164 characters, 1 lines)
+     Also written to /tmp/claude/response.md
+
+❯ /copy                                                                         
+  ⎿  Copied to clipboard (164 characters, 1 lines)
+     Also written to /tmp/claude/response.md
+
+❯ /copy                                                                         
+  ⎿  Copied to clipboard (164 characters, 1 lines)
+     Also written to /tmp/claude/response.md
+
+❯ /n-agentic-harnesses                                                          
+
+● Using n-agentic-harnesses in evaluation mode — the BrokeLLM harness itself is
+  the subject, and we just completed a full security + code gap analysis. Let me
+   read the evaluation references to frame findings against established harness
+  primitives.
+
+  Read 2 files (ctrl+o to expand)
+
+● Now let me read the remaining key references to evaluate BrokeLLM's harness
+  against established primitives.
+
+  Read 4 files (ctrl+o to expand)
+
+● Now I have the full evaluation framework. Here's the harness-specific 
+  evaluation of BrokeLLM, structured per the skill's output contract:
+
+  ---
+  BrokeLLM — Agentic Harness Evaluation
+
+  Classification: code agent + embedded AI feature
+  Harness shape: Single-process gateway orchestrator with policy-driven model
+  routing and event-harness evaluation
+  Architecture level: ~Level 2-3 (durable harness + extensible surface, but
+  approaching complexity limits for solo maintenance)
+
+  ---
+  FINDINGS
+
+  F1 — Tool/Execution Boundary: Shim PATH Trust Model
+
+  Severity: HIGH — safety gap
+  bin/broke:293-314 creates a shims/ directory and prepends it to $PATH. Every
+  entry is a symlink to _harness_shim.py, but nothing validates that symlinks
+  haven't been replaced between creation and execution. A compromised agent
+  could swap a symlink to point at an attacker binary.
+  Why it matters: The entire safety story of harness mediation depends on all
+  tool calls flowing through _harness_shim.py. A swapped symlink bypasses the
+  event ledger entirely.
+  Operator impact: Silent execution — no event is logged for hijacked commands.
+  Fix direction: After prepare_harness_shims(), create an immutable manifest of
+  expected symlink targets (e.g., hash each link destination). At execution
+  time, validate before exec. Better: use execve() with the absolute binary path
+   instead of relying on $PATH resolution, or bwrap --bind-mount each shim
+  individually.
+
+  F2 — Missing Permission Tiers for Harness Commands
+
+  Severity: HIGH — missing primitive
+  The shim classifies commands into verification:test, verification:task, vcs,
+  runtime, tool — but no policy engine blocks or gates anything based on
+  classification. The cwd_allowed() check is the sole permission gate. A git 
+  push --force or rm -rf classified as vcs executes without approval.
+  Why it matters: The skill's permission tier model (always-allow / ask-first /
+  never-allow) is absent.
+  Operator impact: Workers can execute high-risk actions through the shim
+  without review.
+  Fix direction: Add a policy.deny / policy.require_approval table keyed by
+  command + argument patterns. At minimum, deny destructive verbs (rm, dd, mkfs,
+   git reset --hard) regardless of cwd scope.
+
+  F3 — Workflow State Conflated with Logging
+
+  Severity: MEDIUM — durability risk
+  The harness writes events to events.jsonl with chained hashes (good), but
+  there is no explicit "waiting", "retry", "approved", or "blocked" state
+  machine. The harness knows only run.registered → command.started →
+  command.completed → verdict.issued. If a worker crashes mid-task, there's no
+  retry_scheduled or compensated state.
+  Why it matters: Crashes leave runs in implicit "running" state forever; no
+  resumability path.
+  Operator impact: Stuck runs require manual cleanup; no visibility into what
+  was in flight.
+  Fix direction: Add a status field to the run record that progresses through:
+  registered → executing → collecting_checkpoint → awaiting_verdict → 
+  completed/failed/escalated. Write state changes atomically. Add a broke 
+  harness recover <run-id> command.
+
+  F4 — Event Hash Chain Not Validated on Read
+
+  Severity: MEDIUM — audit integrity gap
+  Events are chained with prev_event_hash, but nothing verifies the chain on
+  _read_json() or at verdict time. A malicious process could modify an earlier
+  event without detection unless someone manually replays the hashes.
+  Why it matters: Chain integrity is a write-time-only guarantee; tampering is
+  detectable only if explicitly checked.
+  Fix direction: Add broke harness verify-chain <run-id> that walks the file and
+   confirms each event_hash matches recomputation. Consider validating on
+  verdict issuance.
+
+  F5 — Evaluation Coverage Is Thin for Production-Harness Claims
+
+  Severity: MEDIUM — missing primitive
+  33 tests, all in test_mapping.py. Zero tests for:
+  - _proxy.py request handler error paths (e.g., 502 from LiteLLM, malformed
+  JSON body)
+  - _harness_shim.py policy enforcement (e.g., cwd violation, classification
+  accuracy)
+  - _socket_bridge.py connection behavior (idle timeout, slot exhaustion)
+  - Import/export integrity (overwrite flag, malformed JSON)
+  - Profile inheritance over team policies
+  By the skill's rule: "do not evaluate from vibes alone" — the harness claims
+  balanced/high_assurance verdicts but has no tests confirming those verdicts
+  produce correct outcomes under adversarial input.
+  Operator impact: Regression risk on every edit to proxy policy or harness
+  verdict logic.
+  Fix direction: Minimum add: proxy handler unit tests (mock upstream), shim
+  cwd/classification tests, verdict correctness matrix with known
+  inputs/outputs.
+
+  F6 — Context Assembly Has No Budget Discipline
+
+  Severity: LOW — maintainability
+  cmd_config() generates ALL models for ALL key variants into a single
+  config.json LiteLLM file. There's no concept of "load only the tools relevant
+  to the current context." If a user has 2 keys per provider across 6 providers
+  plus fallback chains, the config file sprawls.
+  Operator impact: Larger config → slower provider startup → higher chance of
+  config errors.
+  Fix direction: Dynamic profile generation — emit only active models + fallback
+   chain for the current team/slot mapping.
+
+  F7 — No Cost/Token Visibility
+
+  Severity: LOW — operational gap
+  cmd_metrics parses prometheus success/failure counts from LiteLLM, but there's
+   no token or cost tracking, no cost-per-lane visibility, and no "runaway
+  behavior indicator." The entire value proposition (route to free backends)
+  lacks the single metric that proves it's working: cost saved.
+  Operator impact: Cannot validate ROI or detect a backend drifting from free to
+   paid tier.
+  Fix direction: Parse litellm_total_tokens and litellm_response_tokens from
+  metrics; derive per-request cost estimates based on provider pricing tables.
+
+  F8 — Duplication Across Components
+
+  Severity: LOW — maintainability degradation
+  The following logic is duplicated across files:
+  - sha256_text / sha256_obj / canonical_json — replicated in _mapping.py,
+  _harness_shim.py, and _proxy.py
+  - File locking (locked_file / _locked_file) — two independent implementations
+  - read_json with fallback / read with parsing — three versions
+
+  This is exactly the pattern solo-devs regret at 6 months.
+  Fix direction: Create bin/_harness_common.py (or reuse _mapping.py as the
+  single source of truth) for shared hashing, JSON, locking, and event append.
+  Import everywhere.
+
+  ---
+  STRENGTHS (brief)
+
+  1. Event-driven audit trail — events.jsonl with chained hashes, artifact refs,
+   and role separation is a strong foundation
+  2. Preflight integrity checks — cmd_preflight() validates PYTHONPATH
+  pollution, lockfile drift, file permissions, .pth injection
+  3. Multi-layer sandbox — normal/hardened/strict profiles with bwrap isolation,
+   network policy, and runtime directory separation
+  4. Policy-driven verdict — throughput/balanced/high_assurance with block_on,
+  retry_on, escalation thresholds
+  5. Provider abstraction — clean claude/codex/gemini env sanitization with
+  sanitize_client_env
+  6. Key rotation state — cooldown timers, auth_failed tracking, generation
+  numbers
+
+  ---
+  UPGRADE PATH (sequenced)
+
+  ┌───────┬───────────────────────────┬─────────────────────────────────────┐
+  │ Order │            Fix            │              Rationale              │
+  ├───────┼───────────────────────────┼─────────────────────────────────────┤
+  │ 1     │ F1: Validate shims before │ Closes the highest-severity safety  │
+  │       │  exec                     │ gap in a single-function change     │
+  ├───────┼───────────────────────────┼─────────────────────────────────────┤
+  │ 2     │ F2: Add deny table for    │ Lowest-effort safety win; prevents  │
+  │       │ destructive commands      │ silent destructive actions          │
+  ├───────┼───────────────────────────┼─────────────────────────────────────┤
+  │ 3     │ F4: Verify event chain on │ Makes audit integrity               │
+  │       │  verdict                  │ bidirectional, not write-only       │
+  ├───────┼───────────────────────────┼─────────────────────────────────────┤
+  │ 4     │ F5: Add proxy + shim      │ Covers the biggest blind spots in   │
+  │       │ tests                     │ the test matrix                     │
+  ├───────┼───────────────────────────┼─────────────────────────────────────┤
+  │ 5     │ F3: Run state machine     │ Adds resumability and crash         │
+  │       │                           │ recovery                            │
+  ├───────┼───────────────────────────┼─────────────────────────────────────┤
+  │ 6     │ F8: Deduplicate           │ Prevents future divergence          │
+  │       │ hash/lock/JSON            │                                     │
+  ├───────┼───────────────────────────┼─────────────────────────────────────┤
+  │ 7     │ F7: Add cost tracking     │ Proves the system's value; detects  │
+  │       │                           │ paid-tier drift                     │
+  ├───────┼───────────────────────────┼─────────────────────────────────────┤
+  │ 8     │ F6: Dynamic profile       │ Nice-to-have; only needed if config │
+  │       │ config                    │  sprawl becomes real                │
+  └───────┴───────────────────────────┴─────────────────────────────────────┘
+
+  ---
+  ACCEPTANCE CRITERIA AFTER FIXES
+
+  1. All shim symlinks verified before any command execution
+  2. Destructive commands (rm -rf, git reset --hard, dd) blocked by shim
+  regardless of cwd scope
+  3. Event chain verification passes for all completed runs
+  4. Proxy tests cover: 502 upstream failure, JSON parse error, auth bypass
+  attempt, missing token
+  5. Harness state machine shows clear status transitions in broke harness 
+  status
+  6. All 34 cmd functions have at least one dedicated test
+
+✻ Sautéed for 2m 0s

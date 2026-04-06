@@ -67,6 +67,7 @@ dist/
 broke-config.json
 *.tmp
 test_litellm.json
+AGENTSHELL_ECOSYSTEM_INTEGRATION.md
 vendor/wheels/*
 !vendor/wheels/.gitkeep
 
